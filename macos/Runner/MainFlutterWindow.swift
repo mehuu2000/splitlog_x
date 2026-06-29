@@ -4,9 +4,15 @@ import FlutterMacOS
 class MainFlutterWindow: NSWindow {
   override func awakeFromNib() {
     let flutterViewController = FlutterViewController()
-    let windowFrame = self.frame
+    let contentSize = NSSize(width: 540, height: 380)
+    styleMask.insert(.fullSizeContentView)
+    titleVisibility = .hidden
+    titlebarAppearsTransparent = true
+    isMovableByWindowBackground = true
+    minSize = contentSize
+    maxSize = contentSize
+    setContentSize(contentSize)
     self.contentViewController = flutterViewController
-    self.setFrame(windowFrame, display: true)
 
     RegisterGeneratedPlugins(registry: flutterViewController)
 
