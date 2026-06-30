@@ -76,6 +76,7 @@ class StopwatchController {
           return;
         }
         _resume(at);
+        return;
       case SessionState.idle:
       case SessionState.finished:
         _activateIdleSession(at, defaultSplitAccumulationMode);
@@ -298,7 +299,7 @@ class StopwatchController {
     if (index < 0) {
       return;
     }
-    final trimmed = label.trim();
+    final trimmed = _singleLineLabel(label);
     final lap = _laps[index];
     _laps[index] = lap.copyWith(
       label: trimmed.isEmpty ? defaultLapLabel(lap.index) : trimmed,
@@ -681,4 +682,8 @@ int _idCounter = 0;
 String _defaultIdGenerator() {
   _idCounter += 1;
   return 'id-$_idCounter';
+}
+
+String _singleLineLabel(String value) {
+  return value.replaceAll(RegExp(r'[\r\n]+'), '').trim();
 }

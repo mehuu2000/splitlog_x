@@ -76,6 +76,27 @@ void main() {
     },
   );
 
+  test('displayed lap seconds sum matches total elapsed seconds', () {
+    final stopwatch = controller();
+    stopwatch.startSession(
+      defaultSplitAccumulationMode: SplitAccumulationMode.checkbox,
+      at: at(0),
+    );
+
+    stopwatch.finishLap(at: at(3));
+    stopwatch.finishLap(at: at(8));
+    stopwatch.toggleLapActive(stopwatch.laps[0].id, at: at(10));
+    stopwatch.selectLap(stopwatch.laps[1].id, at: at(12));
+
+    final displayed = stopwatch.displayedLapSecondsMap(at: at(25));
+    final splitTotal = displayed.values.fold(
+      0,
+      (sum, seconds) => sum + seconds,
+    );
+
+    expect(splitTotal, stopwatch.elapsedSessionSeconds(at: at(25)));
+  });
+
   test('pause and resume exclude paused duration from elapsed time', () {
     final stopwatch = controller();
     stopwatch.startSession(
@@ -93,6 +114,18 @@ void main() {
     expect(stopwatch.displayedLapSecondsMap(at: at(20)), {
       stopwatch.laps.single.id: 10,
     });
+  });
+
+  test('lap label updates remove embedded line breaks', () {
+    final stopwatch = controller();
+    stopwatch.startSession(
+      defaultSplitAccumulationMode: SplitAccumulationMode.radio,
+      at: at(0),
+    );
+
+    stopwatch.updateLapLabel(stopwatch.laps.single.id, 'websocket, push動\n作確認');
+
+    expect(stopwatch.laps.single.label, 'websocket, push動作確認');
   });
 
   test('snapshot JSON round-trips core state', () {
