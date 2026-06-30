@@ -8,5 +8,10 @@
 	<true/>
 	<key>com.apple.security.network.server</key>
 	<true/>
+	<key>com.apple.security.temporary-exception.files.home-relative-path.read-only</key>
+	<array>
+		<string>/Library/Application Support/SplitLog/sessions.json</string>
+		<string>/Library/Containers/hamachi.SplitLog/Data/Library/Application Support/SplitLog/sessions.json</string>
+	</array>
 </dict>
 </plist>

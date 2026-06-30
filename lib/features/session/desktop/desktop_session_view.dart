@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../core/models/session_models.dart';
+import '../../../core/services/session_storage_service.dart';
 import '../../../core/services/stopwatch_controller.dart';
 
 enum _PreviewOverlay {
@@ -18,11 +19,29 @@ enum _PreviewOverlay {
   help,
   guide,
   contact,
+  legacyImport,
+  legacyImportMissing,
 }
 
 enum _SummaryMemoFormat { bulleted, plain }
 
 enum _SummaryTimeFormat { decimalHours, hourMinute }
+
+_SummaryMemoFormat _summaryMemoFormatFromName(String value) {
+  return _SummaryMemoFormat.values.firstWhere(
+    (format) => format.name == value,
+    orElse: () => _SummaryMemoFormat.bulleted,
+  );
+}
+
+_SummaryTimeFormat _summaryTimeFormatFromName(String value) {
+  return _SummaryTimeFormat.values.firstWhere(
+    (format) => format.name == value,
+    orElse: () => _SummaryTimeFormat.decimalHours,
+  );
+}
+
+const _appPlatformChannel = MethodChannel('splitlog_x/app');
 
 class DesktopSessionView extends StatefulWidget {
   const DesktopSessionView({super.key});
@@ -35,6 +54,7 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
   _PreviewOverlay _overlay = _PreviewOverlay.none;
   bool _isLocked = false;
   bool _isMonochrome = false;
+  final SessionStorageService _storage = SessionStorageService();
   late final List<StopwatchController> _stopwatches;
   int _selectedSessionIndex = 0;
   late DateTime _clock;
@@ -62,16 +82,17 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
     super.initState();
     _clock = DateTime.now();
     _stopwatches = [
-      StopwatchController(initialSnapshot: _initialPreviewSnapshot(_clock)),
       StopwatchController(
-        initialSnapshot: _emptySessionSnapshot(_clock, '2026/6/26'),
-      ),
-      StopwatchController(
-        initialSnapshot: _emptySessionSnapshot(_clock, '2026/6/24'),
+        initialSnapshot: _emptySessionSnapshot(
+          _clock,
+          _dateTitle(_clock),
+          splitMode: _defaultSplitMode,
+        ),
       ),
     ];
     _lapLabelFocus.addListener(_handleLapLabelFocusChange);
     _sessionTitleFocus.addListener(_handleSessionTitleFocusChange);
+    unawaited(_loadPersistedState());
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
       if (_stopwatch.state == SessionState.running && mounted) {
         setState(() {
@@ -122,10 +143,101 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
     };
   }
 
-  void _refresh() {
+  Future<void> _loadPersistedState() async {
+    final snapshot = await _storage.load();
+    if (!mounted) {
+      return;
+    }
+    if (snapshot != null && snapshot.sessions.isNotEmpty) {
+      if (_isPreviewSeedSnapshot(snapshot)) {
+        await _storage.delete();
+        if (!mounted) {
+          return;
+        }
+      } else {
+        setState(() {
+          _restoreStorageSnapshot(snapshot);
+        });
+        return;
+      }
+    }
+
+    final hasLegacySnapshot = await _storage.legacySnapshotExists();
+    if (!mounted || !hasLegacySnapshot) {
+      return;
+    }
+    setState(() {
+      _overlay = _PreviewOverlay.legacyImport;
+    });
+  }
+
+  bool _isPreviewSeedSnapshot(SplitLogStorageSnapshot snapshot) {
+    final sessionIds = [
+      for (final session in snapshot.sessions) session.session?.id,
+    ];
+    return sessionIds.length == 3 &&
+        sessionIds[0] == 'session-preview' &&
+        sessionIds[1] == 'session-2026/6/26' &&
+        sessionIds[2] == 'session-2026/6/24';
+  }
+
+  void _restoreStorageSnapshot(SplitLogStorageSnapshot snapshot) {
+    final restored = [
+      for (final session in snapshot.sessions)
+        StopwatchController(initialSnapshot: session),
+    ];
+    if (restored.isEmpty) {
+      return;
+    }
+
+    _stopwatches
+      ..clear()
+      ..addAll(restored);
+    _selectedSessionIndex = math.min(
+      math.max(0, snapshot.selectedSessionIndex),
+      _stopwatches.length - 1,
+    );
+    _clock = DateTime.now();
+    _isLocked = snapshot.settings.isLocked;
+    _isMonochrome = snapshot.settings.isMonochrome;
+    _ringHoursPerCycle = snapshot.settings.ringHoursPerCycle.clamp(1, 24);
+    _defaultSplitMode = snapshot.settings.defaultSplitMode;
+    _summaryMemoFormat = _summaryMemoFormatFromName(
+      snapshot.settings.summaryMemoFormat,
+    );
+    _summaryTimeFormat = _summaryTimeFormatFromName(
+      snapshot.settings.summaryTimeFormat,
+    );
+    _overlay = _PreviewOverlay.none;
+  }
+
+  SplitLogStorageSnapshot _storageSnapshot() {
+    return SplitLogStorageSnapshot(
+      savedAt: DateTime.now(),
+      sessions: [for (final stopwatch in _stopwatches) stopwatch.snapshot()],
+      selectedSessionIndex: _selectedSessionIndex,
+      settings: SplitLogSettingsSnapshot(
+        isLocked: _isLocked,
+        isMonochrome: _isMonochrome,
+        ringHoursPerCycle: _ringHoursPerCycle,
+        defaultSplitMode: _defaultSplitMode,
+        summaryMemoFormat: _summaryMemoFormat.name,
+        summaryTimeFormat: _summaryTimeFormat.name,
+      ),
+    );
+  }
+
+  void _persistState() {
+    unawaited(_storage.save(_storageSnapshot()));
+  }
+
+  void _refresh({bool persist = false}) {
     setState(() {
       _clock = DateTime.now();
     });
+    if (persist) {
+      _persistState();
+    }
   }
 
   void _handleLapLabelFocusChange() {
@@ -165,7 +277,7 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
 
   void _setSplitMode(SplitAccumulationMode mode) {
     _stopwatch.setSplitAccumulationMode(mode, at: DateTime.now());
-    _refresh();
+    _refresh(persist: true);
   }
 
   void _togglePrimaryAction() {
@@ -178,12 +290,12 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
         at: now,
       );
     }
-    _refresh();
+    _refresh(persist: true);
   }
 
   void _finishLap() {
     _stopwatch.finishLap(at: DateTime.now());
-    _refresh();
+    _refresh(persist: true);
   }
 
   void _activateLapFromLeadingControl(String lapId) {
@@ -192,7 +304,7 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
       _stopwatch.toggleLapActive(lapId, at: now);
     }
     _stopwatch.selectLap(lapId, at: now);
-    _refresh();
+    _refresh(persist: true);
   }
 
   void _beginLapLabelEdit(WorkLap lap) {
@@ -227,6 +339,7 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
       _lapLabelController.clear();
       _clock = DateTime.now();
     });
+    _persistState();
   }
 
   void _beginLapMemoEdit(WorkLap lap) {
@@ -249,6 +362,7 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
       _clock = DateTime.now();
       _overlay = _PreviewOverlay.none;
     });
+    _persistState();
   }
 
   void _beginSessionTitleEdit() {
@@ -280,6 +394,7 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
       _sessionTitleController.clear();
       _clock = DateTime.now();
     });
+    _persistState();
   }
 
   void _selectSession(int index) {
@@ -297,11 +412,13 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
       _clock = now;
       _overlay = _PreviewOverlay.none;
     });
+    _persistState();
   }
 
   void _resetSession() {
     _stopwatch.reset(at: DateTime.now());
     _hideOverlay();
+    _persistState();
   }
 
   void _deleteSession() {
@@ -316,6 +433,7 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
       _clock = now;
       _overlay = _PreviewOverlay.none;
     });
+    _persistState();
   }
 
   void _deleteAllSessionData() {
@@ -335,6 +453,7 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
       _selectedSessionIndex = 0;
       _clock = now;
     });
+    _persistState();
   }
 
   void _deleteAllLapData() {
@@ -345,6 +464,7 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
       }
       _clock = now;
     });
+    _persistState();
   }
 
   void _resetSettings() {
@@ -355,6 +475,7 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
       _summaryMemoFormat = _SummaryMemoFormat.bulleted;
       _summaryTimeFormat = _SummaryTimeFormat.decimalHours;
     });
+    _persistState();
   }
 
   void _initializeAllData() {
@@ -382,6 +503,7 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
       _selectedSessionIndex = 0;
       _clock = now;
     });
+    _persistState();
   }
 
   void _show(_PreviewOverlay overlay) {
@@ -389,6 +511,7 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
     setState(() {
       _overlay = overlay;
     });
+    _persistState();
   }
 
   void _hideOverlay() {
@@ -397,30 +520,71 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
     setState(() {
       _overlay = _PreviewOverlay.none;
     });
+    _persistState();
   }
 
   void _setRingHoursPerCycle(int value) {
     setState(() {
       _ringHoursPerCycle = value.clamp(1, 24);
     });
+    _persistState();
   }
 
   void _setDefaultSplitMode(SplitAccumulationMode mode) {
     setState(() {
       _defaultSplitMode = mode;
     });
+    _persistState();
   }
 
   void _setSummaryMemoFormat(_SummaryMemoFormat format) {
     setState(() {
       _summaryMemoFormat = format;
     });
+    _persistState();
   }
 
   void _setSummaryTimeFormat(_SummaryTimeFormat format) {
     setState(() {
       _summaryTimeFormat = format;
     });
+    _persistState();
+  }
+
+  void _toggleLock() {
+    setState(() {
+      _isLocked = !_isLocked;
+    });
+    _persistState();
+  }
+
+  void _setTheme(bool isMonochrome) {
+    setState(() {
+      _isMonochrome = isMonochrome;
+    });
+    _persistState();
+  }
+
+  Future<void> _importLegacyData() async {
+    final snapshot = await _storage.importLegacySnapshot();
+    if (!mounted) {
+      return;
+    }
+    if (snapshot == null || snapshot.sessions.isEmpty) {
+      setState(() {
+        _overlay = _PreviewOverlay.legacyImportMissing;
+      });
+      return;
+    }
+
+    setState(() {
+      _restoreStorageSnapshot(snapshot);
+    });
+    _persistState();
+  }
+
+  Future<void> _quitApp() async {
+    await _appPlatformChannel.invokeMethod<void>('quitApp');
   }
 
   @override
@@ -450,11 +614,7 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
                     selectedSessionIndex: _selectedSessionIndex,
                     isLocked: _isLocked,
                     onHelp: () => _show(_PreviewOverlay.help),
-                    onToggleLock: () {
-                      setState(() {
-                        _isLocked = !_isLocked;
-                      });
-                    },
+                    onToggleLock: _toggleLock,
                     onSessionList: () => _show(_PreviewOverlay.sessionList),
                     onSelectSession: _selectSession,
                     onAddSession: _addSession,
@@ -547,15 +707,14 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
               onReset: _resetSession,
               onDelete: _deleteSession,
               onSelectSession: _selectSession,
-              onSetTheme: (isMonochrome) {
-                setState(() {
-                  _isMonochrome = isMonochrome;
-                });
-              },
+              onSetTheme: _setTheme,
               onSetRingHoursPerCycle: _setRingHoursPerCycle,
               onSetDefaultSplitMode: _setDefaultSplitMode,
               onSetSummaryMemoFormat: _setSummaryMemoFormat,
               onSetSummaryTimeFormat: _setSummaryTimeFormat,
+              onRequestLegacyImport: () => _show(_PreviewOverlay.legacyImport),
+              onImportLegacyData: () => unawaited(_importLegacyData()),
+              onQuitApp: () => unawaited(_quitApp()),
               onDeleteSessionData: _deleteAllSessionData,
               onDeleteLapData: _deleteAllLapData,
               onResetSettings: _resetSettings,
@@ -1359,6 +1518,9 @@ class _OverlayLayer extends StatelessWidget {
     required this.onSetDefaultSplitMode,
     required this.onSetSummaryMemoFormat,
     required this.onSetSummaryTimeFormat,
+    required this.onRequestLegacyImport,
+    required this.onImportLegacyData,
+    required this.onQuitApp,
     required this.onDeleteSessionData,
     required this.onDeleteLapData,
     required this.onResetSettings,
@@ -1389,6 +1551,9 @@ class _OverlayLayer extends StatelessWidget {
   final ValueChanged<SplitAccumulationMode> onSetDefaultSplitMode;
   final ValueChanged<_SummaryMemoFormat> onSetSummaryMemoFormat;
   final ValueChanged<_SummaryTimeFormat> onSetSummaryTimeFormat;
+  final VoidCallback onRequestLegacyImport;
+  final VoidCallback onImportLegacyData;
+  final VoidCallback onQuitApp;
   final VoidCallback onDeleteSessionData;
   final VoidCallback onDeleteLapData;
   final VoidCallback onResetSettings;
@@ -1436,6 +1601,26 @@ class _OverlayLayer extends StatelessWidget {
             onClose: onClose,
             onConfirm: onDelete,
           ),
+        if (overlay == _PreviewOverlay.legacyImport)
+          _ConfirmationOverlay(
+            colors: colors,
+            title: '旧SplitLogデータを取り込みますか？',
+            message: '旧macOS版の sessions.json を読み込み、現在のFlutter版データとして保存します。',
+            confirmTitle: 'インポート',
+            onClose: onClose,
+            onConfirm: onImportLegacyData,
+          ),
+        if (overlay == _PreviewOverlay.legacyImportMissing)
+          _ConfirmationOverlay(
+            colors: colors,
+            title: '旧データが見つかりませんでした',
+            message:
+                '旧macOS版の sessions.json を読み込めませんでした。SplitLog(旧)のデータが存在するか確認してください。',
+            confirmTitle: '閉じる',
+            showCancel: false,
+            onClose: onClose,
+            onConfirm: onClose,
+          ),
         if (overlay == _PreviewOverlay.memo)
           _CenteredOverlay(
             onClose: onCloseMemo,
@@ -1470,6 +1655,9 @@ class _OverlayLayer extends StatelessWidget {
               onSetDefaultSplitMode: onSetDefaultSplitMode,
               onSetSummaryMemoFormat: onSetSummaryMemoFormat,
               onSetSummaryTimeFormat: onSetSummaryTimeFormat,
+              onRequestLegacyImport: onRequestLegacyImport,
+              onImportLegacyData: onImportLegacyData,
+              onQuitApp: onQuitApp,
               onDeleteSessionData: onDeleteSessionData,
               onDeleteLapData: onDeleteLapData,
               onResetSettings: onResetSettings,
@@ -1631,6 +1819,7 @@ class _ConfirmationOverlay extends StatelessWidget {
     required this.onClose,
     required this.onConfirm,
     this.destructive = false,
+    this.showCancel = true,
   });
 
   final _DesktopPreviewColors colors;
@@ -1640,6 +1829,7 @@ class _ConfirmationOverlay extends StatelessWidget {
   final VoidCallback onClose;
   final VoidCallback onConfirm;
   final bool destructive;
+  final bool showCancel;
 
   @override
   Widget build(BuildContext context) {
@@ -1665,8 +1855,13 @@ class _ConfirmationOverlay extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                OutlinedButton(onPressed: onClose, child: const Text('キャンセル')),
-                const SizedBox(width: 8),
+                if (showCancel) ...[
+                  OutlinedButton(
+                    onPressed: onClose,
+                    child: const Text('キャンセル'),
+                  ),
+                  const SizedBox(width: 8),
+                ],
                 FilledButton(
                   onPressed: onConfirm,
                   style: destructive
@@ -1903,6 +2098,9 @@ class _SettingsOverlay extends StatelessWidget {
     required this.onSetDefaultSplitMode,
     required this.onSetSummaryMemoFormat,
     required this.onSetSummaryTimeFormat,
+    required this.onRequestLegacyImport,
+    required this.onImportLegacyData,
+    required this.onQuitApp,
     required this.onDeleteSessionData,
     required this.onDeleteLapData,
     required this.onResetSettings,
@@ -1923,6 +2121,9 @@ class _SettingsOverlay extends StatelessWidget {
   final ValueChanged<SplitAccumulationMode> onSetDefaultSplitMode;
   final ValueChanged<_SummaryMemoFormat> onSetSummaryMemoFormat;
   final ValueChanged<_SummaryTimeFormat> onSetSummaryTimeFormat;
+  final VoidCallback onRequestLegacyImport;
+  final VoidCallback onImportLegacyData;
+  final VoidCallback onQuitApp;
   final VoidCallback onDeleteSessionData;
   final VoidCallback onDeleteLapData;
   final VoidCallback onResetSettings;
@@ -2069,6 +2270,13 @@ class _SettingsOverlay extends StatelessWidget {
                   children: [
                     _ActionRow(
                       colors: colors,
+                      title: '旧データをインポート',
+                      icon: Icons.file_download_outlined,
+                      onPressed: onRequestLegacyImport,
+                    ),
+                    const SizedBox(height: 6),
+                    _ActionRow(
+                      colors: colors,
                       title: 'セッション情報',
                       icon: Icons.delete_outline,
                       destructive: true,
@@ -2108,6 +2316,7 @@ class _SettingsOverlay extends StatelessWidget {
                       colors: colors,
                       title: 'SplitLogを終了',
                       icon: Icons.power_settings_new,
+                      onPressed: onQuitApp,
                     ),
                   ],
                 ),
@@ -3414,58 +3623,6 @@ class _DesktopPreviewColors {
 
   @override
   int get hashCode => isMonochrome.hashCode;
-}
-
-StopwatchSnapshot _initialPreviewSnapshot(DateTime now) {
-  const totalSeconds = 17974;
-  final startedAt = now.subtract(const Duration(seconds: totalSeconds));
-  var cursor = startedAt;
-  final laps = <WorkLap>[];
-
-  void addLap({
-    required String id,
-    required int index,
-    required String label,
-    required int seconds,
-  }) {
-    final endedAt = cursor.add(Duration(seconds: seconds));
-    laps.add(
-      WorkLap(
-        id: id,
-        sessionId: 'session-preview',
-        index: index,
-        startedAt: cursor,
-        endedAt: endedAt,
-        accumulatedSeconds: seconds,
-        label: label,
-        memo: ' ',
-      ),
-    );
-    cursor = endedAt;
-  }
-
-  addLap(id: 'lap-1', index: 1, label: 'websocket, push動作確認', seconds: 9978);
-  addLap(id: 'lap-2', index: 2, label: 'MTG', seconds: 1970);
-  addLap(id: 'lap-3', index: 3, label: '池側くんとのDB更新', seconds: 803);
-  addLap(id: 'lap-4', index: 4, label: 'Issue作成', seconds: 3111);
-  addLap(id: 'lap-5', index: 5, label: 'PR確認', seconds: 2112);
-
-  return StopwatchSnapshot(
-    session: WorkSession(
-      id: 'session-preview',
-      title: '2026/6/28',
-      startedAt: startedAt,
-    ),
-    laps: laps,
-    selectedLapId: 'lap-5',
-    activeLapIds: const {'lap-4', 'lap-5'},
-    splitAccumulationMode: SplitAccumulationMode.checkbox,
-    state: SessionState.stopped,
-    pauseStartedAt: now,
-    lastDistributedWholeSeconds: totalSeconds,
-    distributionCursor: 0,
-    totalPausedSeconds: 0,
-  );
 }
 
 StopwatchSnapshot _emptySessionSnapshot(

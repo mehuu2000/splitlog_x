@@ -67,9 +67,9 @@ class WorkSession {
     return WorkSession(
       id: json['id'] as String,
       title: json['title'] as String,
-      startedAt: DateTime.parse(json['startedAt'] as String),
+      startedAt: _dateTimeValue(json['startedAt']),
       endedAt: switch (json['endedAt']) {
-        final String value => DateTime.parse(value),
+        final Object value => _dateTimeValue(value),
         _ => null,
       },
     );
@@ -139,9 +139,9 @@ class WorkLap {
       id: json['id'] as String,
       sessionId: json['sessionId'] as String,
       index: json['index'] as int,
-      startedAt: DateTime.parse(json['startedAt'] as String),
+      startedAt: _dateTimeValue(json['startedAt']),
       endedAt: switch (json['endedAt']) {
-        final String value => DateTime.parse(value),
+        final Object value => _dateTimeValue(value),
         _ => null,
       },
       accumulatedSeconds: _durationSeconds(json['accumulatedDuration']),
@@ -195,12 +195,17 @@ class StopwatchSnapshot {
   static StopwatchSnapshot fromJson(Map<String, Object?> json) {
     return StopwatchSnapshot(
       session: switch (json['session']) {
-        final Map<String, Object?> value => WorkSession.fromJson(value),
+        final Map<Object?, Object?> value => WorkSession.fromJson(
+          _objectMap(value),
+        ),
         _ => null,
       },
       laps: switch (json['laps']) {
         final List<Object?> values =>
-          values.cast<Map<String, Object?>>().map(WorkLap.fromJson).toList(),
+          values
+              .whereType<Map<Object?, Object?>>()
+              .map((value) => WorkLap.fromJson(_objectMap(value)))
+              .toList(),
         _ => const [],
       },
       selectedLapId: json['selectedLapID'] as String?,
@@ -213,7 +218,7 @@ class StopwatchSnapshot {
       ),
       state: SessionState.fromJson(json['state']),
       pauseStartedAt: switch (json['pauseStartedAt']) {
-        final String value => DateTime.parse(value),
+        final Object value => _dateTimeValue(value),
         _ => null,
       },
       lastDistributedWholeSeconds: _intValue(
@@ -237,4 +242,30 @@ int _intValue(Object? value) {
 
 int _durationSeconds(Object? value) {
   return _intValue(value).clamp(0, 1 << 53);
+}
+
+DateTime _dateTimeValue(Object? value) {
+  return switch (value) {
+    final String stringValue => DateTime.parse(stringValue),
+    final int intValue => _dateTimeFromAppleReferenceSeconds(
+      intValue.toDouble(),
+    ),
+    final double doubleValue => _dateTimeFromAppleReferenceSeconds(doubleValue),
+    _ => DateTime.fromMillisecondsSinceEpoch(0),
+  };
+}
+
+DateTime _dateTimeFromAppleReferenceSeconds(double seconds) {
+  const appleReferenceUnixMilliseconds = 978307200000;
+  return DateTime.fromMillisecondsSinceEpoch(
+    appleReferenceUnixMilliseconds + (seconds * 1000).round(),
+    isUtc: true,
+  ).toLocal();
+}
+
+Map<String, Object?> _objectMap(Map<Object?, Object?> value) {
+  return {
+    for (final entry in value.entries)
+      if (entry.key is String) entry.key! as String: entry.value,
+  };
 }

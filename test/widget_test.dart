@@ -4,9 +4,10 @@ import 'package:splitlog_x/main.dart';
 void main() {
   testWidgets('shows SplitLog desktop preview', (WidgetTester tester) async {
     await tester.pumpWidget(const SplitLogApp());
+    final todayTitle = _dateTitle(DateTime.now());
 
     expect(find.text('SplitLog'), findsOneWidget);
-    expect(find.text('2026/6/28'), findsWidgets);
+    expect(find.text(todayTitle), findsWidgets);
     expect(find.text('全体経過'), findsOneWidget);
     expect(find.text('Split'), findsOneWidget);
   });
@@ -16,9 +17,9 @@ void main() {
   ) async {
     await tester.pumpWidget(const SplitLogApp());
 
-    expect(find.text('Stopped'), findsOneWidget);
+    expect(find.text('開始'), findsOneWidget);
 
-    await tester.tap(find.text('再開'));
+    await tester.tap(find.text('開始'));
     await tester.pump();
 
     expect(find.text('Running'), findsOneWidget);
@@ -35,17 +36,28 @@ void main() {
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(const SplitLogApp());
+    final todayTitle = _dateTitle(DateTime.now());
+    final addedTitle = '$todayTitle-A';
 
-    expect(find.text('2026/6/26'), findsOneWidget);
+    await tester.tap(find.byTooltip('セッション追加'));
+    await tester.pump();
+
+    final addedSessionFinder = find.text(addedTitle);
+    expect(addedSessionFinder.evaluate().length, 2);
 
     await tester.tap(find.byTooltip('セッション一覧'));
     await tester.pump();
 
-    expect(find.text('2026/6/26'), findsNWidgets(2));
+    expect(find.text(todayTitle), findsWidgets);
+    expect(addedSessionFinder.evaluate().length, greaterThan(2));
 
     await tester.tapAt(const Offset(170, 150));
     await tester.pump();
 
-    expect(find.text('2026/6/26'), findsOneWidget);
+    expect(addedSessionFinder.evaluate().length, 2);
   });
+}
+
+String _dateTitle(DateTime date) {
+  return '${date.year}/${date.month}/${date.day}';
 }
