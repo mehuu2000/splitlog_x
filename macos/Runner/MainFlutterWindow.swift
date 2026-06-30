@@ -9,6 +9,9 @@ class MainFlutterWindow: NSWindow {
     titleVisibility = .hidden
     titlebarAppearsTransparent = true
     isMovableByWindowBackground = true
+    standardWindowButton(.closeButton)?.isHidden = true
+    standardWindowButton(.miniaturizeButton)?.isHidden = true
+    standardWindowButton(.zoomButton)?.isHidden = true
     minSize = contentSize
     maxSize = contentSize
     setContentSize(contentSize)
