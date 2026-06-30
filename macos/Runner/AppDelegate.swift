@@ -7,6 +7,7 @@ class AppDelegate: FlutterAppDelegate, NSWindowDelegate {
   private weak var mainWindow: NSWindow?
   private var outsideClickLocalMonitor: Any?
   private var outsideClickGlobalMonitor: Any?
+  private var isPopoverLocked = false
 
   override func applicationDidFinishLaunching(_ notification: Notification) {
     DispatchQueue.main.async {
@@ -119,7 +120,7 @@ class AppDelegate: FlutterAppDelegate, NSWindowDelegate {
     NSApp.terminate(nil)
   }
 
-  private func toggleMainWindow() {
+  func toggleMainWindow() {
     if let window = mainWindow, window.isVisible {
       hideMainWindow()
       return
@@ -128,7 +129,7 @@ class AppDelegate: FlutterAppDelegate, NSWindowDelegate {
     showMainWindow()
   }
 
-  private func showMainWindow() {
+  func showMainWindow() {
     if mainWindow == nil {
       configureMainWindow()
     }
@@ -138,13 +139,25 @@ class AppDelegate: FlutterAppDelegate, NSWindowDelegate {
 
     positionMainWindowNearStatusItem(window)
     NSApp.activate(ignoringOtherApps: true)
+    window.level = isPopoverLocked ? .floating : .normal
     window.makeKeyAndOrderFront(nil)
+    if isPopoverLocked {
+      window.orderFrontRegardless()
+    }
     installOutsideClickMonitors()
   }
 
-  private func hideMainWindow() {
+  func hideMainWindow() {
     removeOutsideClickMonitors()
     mainWindow?.orderOut(nil)
+  }
+
+  func setPopoverLocked(_ isLocked: Bool) {
+    isPopoverLocked = isLocked
+    mainWindow?.level = isLocked ? .floating : .normal
+    if isLocked, let mainWindow, mainWindow.isVisible {
+      mainWindow.orderFrontRegardless()
+    }
   }
 
   private func showStatusMenu(relativeTo button: NSStatusBarButton) {
@@ -204,7 +217,7 @@ class AppDelegate: FlutterAppDelegate, NSWindowDelegate {
     outsideClickLocalMonitor = NSEvent.addLocalMonitorForEvents(
       matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
     ) { [weak self] event in
-      guard let self, self.mainWindow?.isVisible == true else {
+      guard let self, self.mainWindow?.isVisible == true, !self.isPopoverLocked else {
         return event
       }
       guard !self.isEventInsideMainWindow(event), !self.isEventOnStatusItemButton(event) else {
@@ -219,7 +232,7 @@ class AppDelegate: FlutterAppDelegate, NSWindowDelegate {
       matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
     ) { _ in
       DispatchQueue.main.async { [weak self] in
-        guard let self, self.mainWindow?.isVisible == true else {
+        guard let self, self.mainWindow?.isVisible == true, !self.isPopoverLocked else {
           return
         }
 

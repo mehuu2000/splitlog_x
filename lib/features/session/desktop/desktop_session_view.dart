@@ -74,6 +74,7 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
   SplitAccumulationMode _defaultSplitMode = SplitAccumulationMode.radio;
   _SummaryMemoFormat _summaryMemoFormat = _SummaryMemoFormat.bulleted;
   _SummaryTimeFormat _summaryTimeFormat = _SummaryTimeFormat.decimalHours;
+  bool _shortcutsEnabled = true;
 
   StopwatchController get _stopwatch => _stopwatches[_selectedSessionIndex];
 
@@ -92,6 +93,9 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
     ];
     _lapLabelFocus.addListener(_handleLapLabelFocusChange);
     _sessionTitleFocus.addListener(_handleSessionTitleFocusChange);
+    _appPlatformChannel.setMethodCallHandler(_handlePlatformCall);
+    unawaited(_setNativeShortcutsEnabled(_shortcutsEnabled));
+    unawaited(_setNativePopoverLocked(_isLocked));
     unawaited(_loadPersistedState());
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
       if (_stopwatch.state == SessionState.running && mounted) {
@@ -114,6 +118,7 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
     _sessionTitleFocus.dispose();
     _memoLabelController.dispose();
     _memoTextController.dispose();
+    _appPlatformChannel.setMethodCallHandler(null);
     super.dispose();
   }
 
@@ -208,6 +213,9 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
     _summaryTimeFormat = _summaryTimeFormatFromName(
       snapshot.settings.summaryTimeFormat,
     );
+    _shortcutsEnabled = snapshot.settings.shortcutsEnabled;
+    unawaited(_setNativeShortcutsEnabled(_shortcutsEnabled));
+    unawaited(_setNativePopoverLocked(_isLocked));
     _overlay = _PreviewOverlay.none;
   }
 
@@ -223,6 +231,7 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
         defaultSplitMode: _defaultSplitMode,
         summaryMemoFormat: _summaryMemoFormat.name,
         summaryTimeFormat: _summaryTimeFormat.name,
+        shortcutsEnabled: _shortcutsEnabled,
       ),
     );
   }
@@ -474,8 +483,10 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
       _defaultSplitMode = SplitAccumulationMode.radio;
       _summaryMemoFormat = _SummaryMemoFormat.bulleted;
       _summaryTimeFormat = _SummaryTimeFormat.decimalHours;
+      _shortcutsEnabled = true;
     });
     _persistState();
+    unawaited(_setNativeShortcutsEnabled(_shortcutsEnabled));
   }
 
   void _initializeAllData() {
@@ -544,6 +555,14 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
     _persistState();
   }
 
+  void _toggleSummaryMemoFormat() {
+    _setSummaryMemoFormat(
+      _summaryMemoFormat == _SummaryMemoFormat.bulleted
+          ? _SummaryMemoFormat.plain
+          : _SummaryMemoFormat.bulleted,
+    );
+  }
+
   void _setSummaryTimeFormat(_SummaryTimeFormat format) {
     setState(() {
       _summaryTimeFormat = format;
@@ -551,11 +570,28 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
     _persistState();
   }
 
+  void _toggleSummaryTimeFormat() {
+    _setSummaryTimeFormat(
+      _summaryTimeFormat == _SummaryTimeFormat.decimalHours
+          ? _SummaryTimeFormat.hourMinute
+          : _SummaryTimeFormat.decimalHours,
+    );
+  }
+
+  void _setShortcutsEnabled(bool enabled) {
+    setState(() {
+      _shortcutsEnabled = enabled;
+    });
+    _persistState();
+    unawaited(_setNativeShortcutsEnabled(enabled));
+  }
+
   void _toggleLock() {
     setState(() {
       _isLocked = !_isLocked;
     });
     _persistState();
+    unawaited(_setNativePopoverLocked(_isLocked));
   }
 
   void _setTheme(bool isMonochrome) {
@@ -583,14 +619,137 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
     _persistState();
   }
 
+  Future<void> _importLegacyDataFromFile() async {
+    final content = await _appPlatformChannel.invokeMethod<String>(
+      'chooseLegacyFile',
+    );
+    if (!mounted || content == null) {
+      return;
+    }
+
+    final snapshot = await _storage.importLegacySnapshotFromContent(content);
+    if (!mounted) {
+      return;
+    }
+    if (snapshot == null || snapshot.sessions.isEmpty) {
+      setState(() {
+        _overlay = _PreviewOverlay.legacyImportMissing;
+      });
+      return;
+    }
+
+    setState(() {
+      _restoreStorageSnapshot(snapshot);
+    });
+    _persistState();
+  }
+
+  Future<void> _openContactMail() async {
+    await _appPlatformChannel.invokeMethod<void>('openContact');
+  }
+
   Future<void> _quitApp() async {
     await _appPlatformChannel.invokeMethod<void>('quitApp');
+  }
+
+  Future<void> _setNativeShortcutsEnabled(bool enabled) async {
+    try {
+      await _appPlatformChannel.invokeMethod<void>('setShortcutsEnabled', {
+        'enabled': enabled,
+      });
+    } on MissingPluginException {
+      // Non-macOS targets do not need desktop global shortcuts.
+    }
+  }
+
+  Future<void> _setNativePopoverLocked(bool locked) async {
+    try {
+      await _appPlatformChannel.invokeMethod<void>('setPopoverLocked', {
+        'locked': locked,
+      });
+    } on MissingPluginException {
+      // Non-macOS targets do not need popover locking.
+    }
+  }
+
+  Future<Object?> _handlePlatformCall(MethodCall call) async {
+    if (call.method != 'shortcutAction') {
+      return null;
+    }
+    final arguments = call.arguments;
+    if (arguments is! Map<Object?, Object?>) {
+      return null;
+    }
+    _handleShortcutAction(arguments);
+    return null;
+  }
+
+  void _handleShortcutAction(Map<Object?, Object?> arguments) {
+    if (!_shortcutsEnabled || !mounted) {
+      return;
+    }
+    final action = arguments['action'] as String?;
+    final now = DateTime.now();
+    var handled = false;
+
+    switch (action) {
+      case 'split':
+        if (_stopwatch.state == SessionState.running) {
+          _stopwatch.finishLap(at: now);
+          handled = true;
+        }
+      case 'stop':
+        if (_stopwatch.state == SessionState.running ||
+            _stopwatch.state == SessionState.paused) {
+          _stopwatch.finishSession(at: now);
+          handled = true;
+        }
+      case 'resume':
+        if (_stopwatch.state == SessionState.paused ||
+            _stopwatch.state == SessionState.stopped) {
+          _stopwatch.resumeSession(at: now);
+          handled = true;
+        } else if (_stopwatch.state == SessionState.idle) {
+          _stopwatch.startSession(
+            defaultSplitAccumulationMode: _stopwatch.splitAccumulationMode,
+            at: now,
+          );
+          handled = true;
+        }
+      case 'memo':
+        final currentLap = _stopwatch.currentLap;
+        if (currentLap != null) {
+          _beginLapMemoEdit(currentLap);
+          handled = true;
+        }
+      case 'targetLap':
+        final index = arguments['index'];
+        if (index is int) {
+          handled = _stopwatch.selectOrToggleLapForShortcut(index, at: now);
+        }
+      case 'moveLap':
+        final offset = arguments['offset'];
+        if (offset is int) {
+          handled = _stopwatch.moveSelectedLapForShortcut(offset, at: now);
+        }
+    }
+
+    if (handled) {
+      _refresh(persist: true);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final colors = _DesktopPreviewColors(isMonochrome: _isMonochrome);
     final lapSeconds = _stopwatch.displayedLapSecondsMap(at: _clock);
+    final summary = _buildSessionSummary(
+      stopwatch: _stopwatch,
+      lapSeconds: lapSeconds,
+      totalSeconds: _totalSeconds,
+      memoFormat: _summaryMemoFormat,
+      timeFormat: _summaryTimeFormat,
+    );
 
     return SizedBox(
       width: 540,
@@ -697,6 +856,9 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
               defaultSplitMode: _defaultSplitMode,
               summaryMemoFormat: _summaryMemoFormat,
               summaryTimeFormat: _summaryTimeFormat,
+              summary: summary,
+              summaryTimePreviewLabel: summary.timeFormatLabel,
+              shortcutsEnabled: _shortcutsEnabled,
               memoLabelController: _memoLabelController,
               memoTextController: _memoTextController,
               memoElapsedText: _memoElapsedText,
@@ -704,6 +866,7 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
               onCloseMemo: _closeMemo,
               onOpenGuide: () => _show(_PreviewOverlay.guide),
               onOpenContact: () => _show(_PreviewOverlay.contact),
+              onOpenContactMail: () => unawaited(_openContactMail()),
               onReset: _resetSession,
               onDelete: _deleteSession,
               onSelectSession: _selectSession,
@@ -712,8 +875,13 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
               onSetDefaultSplitMode: _setDefaultSplitMode,
               onSetSummaryMemoFormat: _setSummaryMemoFormat,
               onSetSummaryTimeFormat: _setSummaryTimeFormat,
+              onToggleSummaryMemoFormat: _toggleSummaryMemoFormat,
+              onToggleSummaryTimeFormat: _toggleSummaryTimeFormat,
+              onSetShortcutsEnabled: _setShortcutsEnabled,
               onRequestLegacyImport: () => _show(_PreviewOverlay.legacyImport),
               onImportLegacyData: () => unawaited(_importLegacyData()),
+              onImportLegacyDataFromFile: () =>
+                  unawaited(_importLegacyDataFromFile()),
               onQuitApp: () => unawaited(_quitApp()),
               onDeleteSessionData: _deleteAllSessionData,
               onDeleteLapData: _deleteAllLapData,
@@ -865,7 +1033,7 @@ class _SessionSelector extends StatelessWidget {
                     child: Text(
                       session,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 12),
+                      style: const TextStyle(fontSize: 11),
                     ),
                   ),
                 );
@@ -1503,6 +1671,9 @@ class _OverlayLayer extends StatelessWidget {
     required this.defaultSplitMode,
     required this.summaryMemoFormat,
     required this.summaryTimeFormat,
+    required this.summary,
+    required this.summaryTimePreviewLabel,
+    required this.shortcutsEnabled,
     required this.memoLabelController,
     required this.memoTextController,
     required this.memoElapsedText,
@@ -1510,6 +1681,7 @@ class _OverlayLayer extends StatelessWidget {
     required this.onCloseMemo,
     required this.onOpenGuide,
     required this.onOpenContact,
+    required this.onOpenContactMail,
     required this.onReset,
     required this.onDelete,
     required this.onSelectSession,
@@ -1518,8 +1690,12 @@ class _OverlayLayer extends StatelessWidget {
     required this.onSetDefaultSplitMode,
     required this.onSetSummaryMemoFormat,
     required this.onSetSummaryTimeFormat,
+    required this.onToggleSummaryMemoFormat,
+    required this.onToggleSummaryTimeFormat,
+    required this.onSetShortcutsEnabled,
     required this.onRequestLegacyImport,
     required this.onImportLegacyData,
+    required this.onImportLegacyDataFromFile,
     required this.onQuitApp,
     required this.onDeleteSessionData,
     required this.onDeleteLapData,
@@ -1536,6 +1712,9 @@ class _OverlayLayer extends StatelessWidget {
   final SplitAccumulationMode defaultSplitMode;
   final _SummaryMemoFormat summaryMemoFormat;
   final _SummaryTimeFormat summaryTimeFormat;
+  final _SessionSummary summary;
+  final String summaryTimePreviewLabel;
+  final bool shortcutsEnabled;
   final TextEditingController memoLabelController;
   final TextEditingController memoTextController;
   final String memoElapsedText;
@@ -1543,6 +1722,7 @@ class _OverlayLayer extends StatelessWidget {
   final VoidCallback onCloseMemo;
   final VoidCallback onOpenGuide;
   final VoidCallback onOpenContact;
+  final VoidCallback onOpenContactMail;
   final VoidCallback onReset;
   final VoidCallback onDelete;
   final ValueChanged<int> onSelectSession;
@@ -1551,8 +1731,12 @@ class _OverlayLayer extends StatelessWidget {
   final ValueChanged<SplitAccumulationMode> onSetDefaultSplitMode;
   final ValueChanged<_SummaryMemoFormat> onSetSummaryMemoFormat;
   final ValueChanged<_SummaryTimeFormat> onSetSummaryTimeFormat;
+  final VoidCallback onToggleSummaryMemoFormat;
+  final VoidCallback onToggleSummaryTimeFormat;
+  final ValueChanged<bool> onSetShortcutsEnabled;
   final VoidCallback onRequestLegacyImport;
   final VoidCallback onImportLegacyData;
+  final VoidCallback onImportLegacyDataFromFile;
   final VoidCallback onQuitApp;
   final VoidCallback onDeleteSessionData;
   final VoidCallback onDeleteLapData;
@@ -1597,7 +1781,7 @@ class _OverlayLayer extends StatelessWidget {
             title: 'セッションを削除しますか？',
             message: '現在表示中のセッションを削除します。',
             confirmTitle: '削除',
-            destructive: !isMonochrome,
+            destructive: true,
             onClose: onClose,
             onConfirm: onDelete,
           ),
@@ -1635,7 +1819,13 @@ class _OverlayLayer extends StatelessWidget {
         if (overlay == _PreviewOverlay.summary)
           _CenteredOverlay(
             onClose: onClose,
-            child: _SummaryOverlay(colors: colors, onClose: onClose),
+            child: _SummaryOverlay(
+              colors: colors,
+              summary: summary,
+              onToggleMemoFormat: onToggleSummaryMemoFormat,
+              onToggleTimeFormat: onToggleSummaryTimeFormat,
+              onClose: onClose,
+            ),
           ),
         if (overlay == _PreviewOverlay.settings)
           _CenteredOverlay(
@@ -1650,13 +1840,17 @@ class _OverlayLayer extends StatelessWidget {
               defaultSplitMode: defaultSplitMode,
               summaryMemoFormat: summaryMemoFormat,
               summaryTimeFormat: summaryTimeFormat,
+              summaryTimePreviewLabel: summaryTimePreviewLabel,
+              shortcutsEnabled: shortcutsEnabled,
               onSetTheme: onSetTheme,
               onSetRingHoursPerCycle: onSetRingHoursPerCycle,
               onSetDefaultSplitMode: onSetDefaultSplitMode,
               onSetSummaryMemoFormat: onSetSummaryMemoFormat,
               onSetSummaryTimeFormat: onSetSummaryTimeFormat,
+              onSetShortcutsEnabled: onSetShortcutsEnabled,
               onRequestLegacyImport: onRequestLegacyImport,
               onImportLegacyData: onImportLegacyData,
+              onImportLegacyDataFromFile: onImportLegacyDataFromFile,
               onQuitApp: onQuitApp,
               onDeleteSessionData: onDeleteSessionData,
               onDeleteLapData: onDeleteLapData,
@@ -1682,7 +1876,11 @@ class _OverlayLayer extends StatelessWidget {
         if (overlay == _PreviewOverlay.contact)
           _CenteredOverlay(
             onClose: onClose,
-            child: _ContactOverlay(colors: colors, onClose: onClose),
+            child: _ContactOverlay(
+              colors: colors,
+              onClose: onClose,
+              onOpenMail: onOpenContactMail,
+            ),
           ),
       ],
     );
@@ -1858,17 +2056,14 @@ class _ConfirmationOverlay extends StatelessWidget {
                 if (showCancel) ...[
                   OutlinedButton(
                     onPressed: onClose,
+                    style: colors.outlinedButtonStyle(),
                     child: const Text('キャンセル'),
                   ),
                   const SizedBox(width: 8),
                 ],
                 FilledButton(
                   onPressed: onConfirm,
-                  style: destructive
-                      ? FilledButton.styleFrom(
-                          backgroundColor: const Color(0xFFC94848),
-                        )
-                      : null,
+                  style: colors.filledButtonStyle(destructive: destructive),
                   child: Text(confirmTitle),
                 ),
               ],
@@ -1940,7 +2135,7 @@ class _MemoOverlay extends StatelessWidget {
                 borderRadius: BorderRadius.circular(7),
                 borderSide: BorderSide(color: colors.accent),
               ),
-              hintText: 'websocket, push動作確認',
+              hintText: '作業内容',
             ),
           ),
           const SizedBox(height: 12),
@@ -1994,7 +2189,7 @@ class _MemoOverlay extends StatelessWidget {
                   borderRadius: BorderRadius.circular(8),
                   borderSide: BorderSide(color: colors.accent),
                 ),
-                hintText: 'websocket と push 動作を確認',
+                hintText: 'メモを入力',
               ),
             ),
           ),
@@ -2002,7 +2197,11 @@ class _MemoOverlay extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              FilledButton(onPressed: onClose, child: const Text('閉じる')),
+              FilledButton(
+                onPressed: onClose,
+                style: colors.filledButtonStyle(),
+                child: const Text('閉じる'),
+              ),
             ],
           ),
         ],
@@ -2012,20 +2211,22 @@ class _MemoOverlay extends StatelessWidget {
 }
 
 class _SummaryOverlay extends StatelessWidget {
-  const _SummaryOverlay({required this.colors, required this.onClose});
+  const _SummaryOverlay({
+    required this.colors,
+    required this.summary,
+    required this.onToggleMemoFormat,
+    required this.onToggleTimeFormat,
+    required this.onClose,
+  });
 
   final _DesktopPreviewColors colors;
+  final _SessionSummary summary;
+  final VoidCallback onToggleMemoFormat;
+  final VoidCallback onToggleTimeFormat;
   final VoidCallback onClose;
 
   @override
   Widget build(BuildContext context) {
-    const summary = '''
-websocket, push動作確認　(2.8h)
-MTG　(0.5h)
-池側くんとのDB更新　(0.2h)
-Issue作成　(0.9h)
-PR確認　(0.6h)''';
-
     return _ModalSurface(
       colors: colors,
       width: 400,
@@ -2039,12 +2240,22 @@ PR確認　(0.6h)''';
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
               ),
               const SizedBox(width: 8),
-              _SmallPill(colors: colors, label: '- メモ'),
+              _SmallPill(
+                colors: colors,
+                label: summary.memoFormatLabel,
+                tooltip: 'メモ表示形式を切り替え',
+                onPressed: onToggleMemoFormat,
+              ),
               const SizedBox(width: 6),
-              _SmallPill(colors: colors, label: '1.1h'),
+              _SmallPill(
+                colors: colors,
+                label: summary.timeFormatLabel,
+                tooltip: '時間表示形式を切り替え',
+                onPressed: onToggleTimeFormat,
+              ),
               const Spacer(),
               Text(
-                '2026/6/28 (5.0h)',
+                summary.headerText,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(fontSize: 11, color: colors.secondaryText),
               ),
@@ -2052,7 +2263,9 @@ PR確認　(0.6h)''';
               IconButton(
                 tooltip: 'コピー',
                 iconSize: 16,
-                onPressed: () {},
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: summary.text));
+                },
                 icon: const Icon(Icons.copy),
               ),
             ],
@@ -2067,13 +2280,22 @@ PR確認　(0.6h)''';
               border: Border.all(color: colors.border),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: const Text(summary, style: TextStyle(height: 1.45)),
+            child: SingleChildScrollView(
+              child: SelectableText(
+                summary.text,
+                style: const TextStyle(height: 1.45),
+              ),
+            ),
           ),
           const SizedBox(height: 12),
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              FilledButton(onPressed: onClose, child: const Text('閉じる')),
+              FilledButton(
+                onPressed: onClose,
+                style: colors.filledButtonStyle(),
+                child: const Text('閉じる'),
+              ),
             ],
           ),
         ],
@@ -2093,13 +2315,17 @@ class _SettingsOverlay extends StatelessWidget {
     required this.defaultSplitMode,
     required this.summaryMemoFormat,
     required this.summaryTimeFormat,
+    required this.summaryTimePreviewLabel,
+    required this.shortcutsEnabled,
     required this.onSetTheme,
     required this.onSetRingHoursPerCycle,
     required this.onSetDefaultSplitMode,
     required this.onSetSummaryMemoFormat,
     required this.onSetSummaryTimeFormat,
+    required this.onSetShortcutsEnabled,
     required this.onRequestLegacyImport,
     required this.onImportLegacyData,
+    required this.onImportLegacyDataFromFile,
     required this.onQuitApp,
     required this.onDeleteSessionData,
     required this.onDeleteLapData,
@@ -2116,13 +2342,17 @@ class _SettingsOverlay extends StatelessWidget {
   final SplitAccumulationMode defaultSplitMode;
   final _SummaryMemoFormat summaryMemoFormat;
   final _SummaryTimeFormat summaryTimeFormat;
+  final String summaryTimePreviewLabel;
+  final bool shortcutsEnabled;
   final ValueChanged<bool> onSetTheme;
   final ValueChanged<int> onSetRingHoursPerCycle;
   final ValueChanged<SplitAccumulationMode> onSetDefaultSplitMode;
   final ValueChanged<_SummaryMemoFormat> onSetSummaryMemoFormat;
   final ValueChanged<_SummaryTimeFormat> onSetSummaryTimeFormat;
+  final ValueChanged<bool> onSetShortcutsEnabled;
   final VoidCallback onRequestLegacyImport;
   final VoidCallback onImportLegacyData;
+  final VoidCallback onImportLegacyDataFromFile;
   final VoidCallback onQuitApp;
   final VoidCallback onDeleteSessionData;
   final VoidCallback onDeleteLapData;
@@ -2230,15 +2460,33 @@ class _SettingsOverlay extends StatelessWidget {
                       title: '時間表示形式',
                       trailing: _MenuValuePill(
                         colors: colors,
-                        label:
-                            summaryTimeFormat == _SummaryTimeFormat.decimalHours
-                            ? '1.1h'
-                            : '1時間6分',
+                        label: summaryTimePreviewLabel,
                         onPressed: () => onSetSummaryTimeFormat(
                           summaryTimeFormat == _SummaryTimeFormat.decimalHours
                               ? _SummaryTimeFormat.hourMinute
                               : _SummaryTimeFormat.decimalHours,
                         ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                _SettingsGroup(
+                  colors: colors,
+                  label: 'ショートカット',
+                  children: [
+                    _ChoiceBar(
+                      colors: colors,
+                      selectedIndex: shortcutsEnabled ? 0 : 1,
+                      labels: const ['オン', 'オフ'],
+                      onTap: (index) => onSetShortcutsEnabled(index == 0),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      'Desktop版のみ、⌘⌃Sなどのグローバルショートカットを使います。',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: colors.secondaryText,
                       ),
                     ),
                   ],
@@ -2273,6 +2521,13 @@ class _SettingsOverlay extends StatelessWidget {
                       title: '旧データをインポート',
                       icon: Icons.file_download_outlined,
                       onPressed: onRequestLegacyImport,
+                    ),
+                    const SizedBox(height: 6),
+                    _ActionRow(
+                      colors: colors,
+                      title: 'sessions.jsonを選択',
+                      icon: Icons.folder_open,
+                      onPressed: onImportLegacyDataFromFile,
                     ),
                     const SizedBox(height: 6),
                     _ActionRow(
@@ -2327,7 +2582,11 @@ class _SettingsOverlay extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              FilledButton(onPressed: onClose, child: const Text('閉じる')),
+              FilledButton(
+                onPressed: onClose,
+                style: colors.filledButtonStyle(),
+                child: const Text('閉じる'),
+              ),
             ],
           ),
         ],
@@ -2732,10 +2991,15 @@ class _GuideSection {
 }
 
 class _ContactOverlay extends StatelessWidget {
-  const _ContactOverlay({required this.colors, required this.onClose});
+  const _ContactOverlay({
+    required this.colors,
+    required this.onClose,
+    required this.onOpenMail,
+  });
 
   final _DesktopPreviewColors colors;
   final VoidCallback onClose;
+  final VoidCallback onOpenMail;
 
   @override
   Widget build(BuildContext context) {
@@ -2752,14 +3016,24 @@ class _ContactOverlay extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           Text(
-            '配布版ではメール作成画面を開く導線として接続します。',
+            '不具合報告や相談用のメール作成画面を開きます。',
             style: TextStyle(fontSize: 13, color: colors.secondaryText),
           ),
           const SizedBox(height: 14),
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              FilledButton(onPressed: onClose, child: const Text('閉じる')),
+              OutlinedButton(
+                onPressed: onClose,
+                style: colors.outlinedButtonStyle(),
+                child: const Text('閉じる'),
+              ),
+              const SizedBox(width: 8),
+              FilledButton(
+                onPressed: onOpenMail,
+                style: colors.filledButtonStyle(),
+                child: const Text('メールを開く'),
+              ),
             ],
           ),
         ],
@@ -2962,28 +3236,42 @@ class _UtilityButton extends StatelessWidget {
 }
 
 class _SmallPill extends StatelessWidget {
-  const _SmallPill({required this.colors, required this.label});
+  const _SmallPill({
+    required this.colors,
+    required this.label,
+    required this.tooltip,
+    required this.onPressed,
+  });
 
   final _DesktopPreviewColors colors;
   final String label;
+  final String tooltip;
+  final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 20,
-      padding: const EdgeInsets.symmetric(horizontal: 6),
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: colors.accent.withValues(alpha: 0.16),
-        border: Border.all(color: colors.accent.withValues(alpha: 0.45)),
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
         borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: colors.accent,
-          fontSize: 10,
-          fontWeight: FontWeight.w700,
+        onTap: onPressed,
+        child: Container(
+          height: 20,
+          padding: const EdgeInsets.symmetric(horizontal: 6),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: colors.accent.withValues(alpha: 0.16),
+            border: Border.all(color: colors.accent.withValues(alpha: 0.45)),
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: colors.accent,
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
         ),
       ),
     );
@@ -3565,7 +3853,9 @@ class _DesktopPreviewColors {
 
   Color get disabledButtonBorder => Colors.white.withValues(alpha: 0.18);
 
-  Color get disabledText => const Color(0xFFBFD9FF);
+  Color get disabledText => isMonochrome
+      ? Colors.black.withValues(alpha: 0.38)
+      : const Color(0xFFBFD9FF);
 
   Color get track => isMonochrome
       ? const Color(0xFFEDEDED)
@@ -3616,6 +3906,25 @@ class _DesktopPreviewColors {
     return colors[zeroBased % colors.length];
   }
 
+  ButtonStyle filledButtonStyle({bool destructive = false}) {
+    final background = destructive
+        ? (isMonochrome ? const Color(0xFF3A3A3A) : const Color(0xFFC94848))
+        : accent;
+    return FilledButton.styleFrom(
+      backgroundColor: background,
+      foregroundColor: Colors.white,
+      disabledBackgroundColor: disabledButtonBackground,
+      disabledForegroundColor: disabledText,
+    );
+  }
+
+  ButtonStyle outlinedButtonStyle() {
+    return OutlinedButton.styleFrom(
+      foregroundColor: isMonochrome ? primaryText : accent,
+      side: BorderSide(color: isMonochrome ? buttonBorder : accent),
+    );
+  }
+
   @override
   bool operator ==(Object other) {
     return other is _DesktopPreviewColors && other.isMonochrome == isMonochrome;
@@ -3623,6 +3932,78 @@ class _DesktopPreviewColors {
 
   @override
   int get hashCode => isMonochrome.hashCode;
+}
+
+class _SessionSummary {
+  const _SessionSummary({
+    required this.text,
+    required this.headerText,
+    required this.memoFormatLabel,
+    required this.timeFormatLabel,
+  });
+
+  final String text;
+  final String headerText;
+  final String memoFormatLabel;
+  final String timeFormatLabel;
+}
+
+_SessionSummary _buildSessionSummary({
+  required StopwatchController stopwatch,
+  required Map<String, int> lapSeconds,
+  required int totalSeconds,
+  required _SummaryMemoFormat memoFormat,
+  required _SummaryTimeFormat timeFormat,
+}) {
+  final lines = <String>[];
+  if (stopwatch.laps.isEmpty) {
+    lines.add('Splitはまだありません');
+  } else {
+    for (final lap in stopwatch.laps) {
+      final elapsedSeconds = lapSeconds[lap.id] ?? lap.accumulatedSeconds;
+      lines.add(
+        '${lap.label}　(${_formatSummaryDuration(elapsedSeconds, timeFormat)})',
+      );
+      final memo = lap.memo.trim();
+      if (memo.isEmpty) {
+        continue;
+      }
+      switch (memoFormat) {
+        case _SummaryMemoFormat.plain:
+          lines.add(lap.memo);
+        case _SummaryMemoFormat.bulleted:
+          final paragraphs = lap.memo
+              .split(RegExp(r'\r?\n'))
+              .map((line) => line.trim())
+              .where((line) => line.isNotEmpty);
+          for (final paragraph in paragraphs) {
+            lines.add('   - $paragraph');
+          }
+      }
+    }
+  }
+
+  final sessionTitle = stopwatch.session?.title ?? '';
+  return _SessionSummary(
+    text: lines.join('\n'),
+    headerText:
+        '$sessionTitle (${_formatSummaryDuration(totalSeconds, timeFormat)})',
+    memoFormatLabel: memoFormat == _SummaryMemoFormat.bulleted ? '- メモ' : 'メモ',
+    timeFormatLabel: _formatSummaryDuration(totalSeconds, timeFormat),
+  );
+}
+
+String _formatSummaryDuration(int seconds, _SummaryTimeFormat format) {
+  final safeSeconds = math.max(0, seconds);
+  switch (format) {
+    case _SummaryTimeFormat.decimalHours:
+      return '${(safeSeconds / 3600).toStringAsFixed(1)}h';
+    case _SummaryTimeFormat.hourMinute:
+      final totalMinutes = (safeSeconds + 30) ~/ 60;
+      final hours = totalMinutes ~/ 60;
+      final minutes = totalMinutes % 60;
+      return '$hours時間$minutes分';
+  }
 }
 
 StopwatchSnapshot _emptySessionSnapshot(

@@ -39,6 +39,7 @@ void main() {
         defaultSplitMode: SplitAccumulationMode.checkbox,
         summaryMemoFormat: 'plain',
         summaryTimeFormat: 'hourMinute',
+        shortcutsEnabled: false,
       ),
       sessions: [
         StopwatchSnapshot(
@@ -76,6 +77,7 @@ void main() {
     expect(restored, isNotNull);
     expect(restored!.settings.isLocked, isTrue);
     expect(restored.settings.ringHoursPerCycle, 8);
+    expect(restored.settings.shortcutsEnabled, isFalse);
     expect(restored.sessions.single.session?.title, '2026/6/30');
     expect(restored.sessions.single.laps.single.memo, 'memo');
   });
@@ -133,5 +135,34 @@ void main() {
       imported.sessions.single.splitAccumulationMode,
       SplitAccumulationMode.checkbox,
     );
+  });
+
+  test('imports legacy sessions from manually selected file content', () async {
+    final service = SessionStorageService(
+      storageFile: storageFile,
+      legacyStorageFile: legacyFile,
+    );
+
+    final imported = await service.importLegacySnapshotFromContent('''
+{
+  "contexts": [
+    {
+      "session": {
+        "id": "session-manual",
+        "title": "手動インポート",
+        "startedAt": 804427200
+      },
+      "laps": [],
+      "splitAccumulationMode": "radio",
+      "state": "idle"
+    }
+  ],
+  "sessionOrder": ["session-manual"],
+  "selectedSessionID": "session-manual"
+}
+''');
+
+    expect(imported, isNotNull);
+    expect(imported!.sessions.single.session?.title, '手動インポート');
   });
 }

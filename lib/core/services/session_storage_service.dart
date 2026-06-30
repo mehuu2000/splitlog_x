@@ -11,6 +11,7 @@ class SplitLogSettingsSnapshot {
     this.defaultSplitMode = SplitAccumulationMode.radio,
     this.summaryMemoFormat = 'bulleted',
     this.summaryTimeFormat = 'decimalHours',
+    this.shortcutsEnabled = true,
   });
 
   final bool isLocked;
@@ -19,6 +20,7 @@ class SplitLogSettingsSnapshot {
   final SplitAccumulationMode defaultSplitMode;
   final String summaryMemoFormat;
   final String summaryTimeFormat;
+  final bool shortcutsEnabled;
 
   Map<String, Object?> toJson() {
     return {
@@ -28,6 +30,7 @@ class SplitLogSettingsSnapshot {
       'defaultSplitMode': defaultSplitMode.name,
       'summaryMemoFormat': summaryMemoFormat,
       'summaryTimeFormat': summaryTimeFormat,
+      'shortcutsEnabled': shortcutsEnabled,
     };
   }
 
@@ -44,6 +47,7 @@ class SplitLogSettingsSnapshot {
       ),
       summaryMemoFormat: json['summaryMemoFormat'] as String? ?? 'bulleted',
       summaryTimeFormat: json['summaryTimeFormat'] as String? ?? 'decimalHours',
+      shortcutsEnabled: json['shortcutsEnabled'] as bool? ?? true,
     );
   }
 }
@@ -205,9 +209,31 @@ class SessionStorageService {
     return null;
   }
 
+  Future<SplitLogStorageSnapshot?> importLegacySnapshotFromContent(
+    String content,
+  ) async {
+    final json = _readJsonObjectFromString(content);
+    if (json == null) {
+      return null;
+    }
+    final snapshot = SplitLogStorageSnapshot.fromLegacyJson(json);
+    if (snapshot.sessions.isEmpty) {
+      return null;
+    }
+    return snapshot;
+  }
+
   Future<Map<String, Object?>?> _readJsonObject(File file) async {
     try {
-      final decoded = jsonDecode(await file.readAsString());
+      return _readJsonObjectFromString(await file.readAsString());
+    } on Object {
+      return null;
+    }
+  }
+
+  Map<String, Object?>? _readJsonObjectFromString(String content) {
+    try {
+      final decoded = jsonDecode(content);
       if (decoded is! Map<Object?, Object?>) {
         return null;
       }

@@ -255,6 +255,43 @@ class StopwatchController {
     }
   }
 
+  bool selectOrToggleLapForShortcut(int displayIndex, {required DateTime at}) {
+    final lapId = _lapIdForShortcutDisplayIndex(displayIndex);
+    if (lapId == null) {
+      return false;
+    }
+
+    switch (_splitAccumulationMode) {
+      case SplitAccumulationMode.radio:
+        selectLap(lapId, at: at);
+      case SplitAccumulationMode.checkbox:
+        toggleLapActive(lapId, at: at);
+        selectLap(lapId, at: at);
+    }
+    return true;
+  }
+
+  bool moveSelectedLapForShortcut(int offset, {required DateTime at}) {
+    if (offset == 0) {
+      return false;
+    }
+    final selected = _selectedLapId;
+    if (selected == null) {
+      return false;
+    }
+    final currentIndex = _laps.indexWhere((lap) => lap.id == selected);
+    if (currentIndex < 0) {
+      return false;
+    }
+    final targetIndex = currentIndex + offset;
+    if (targetIndex < 0 || targetIndex >= _laps.length) {
+      return false;
+    }
+
+    selectLap(_laps[targetIndex].id, at: at);
+    return true;
+  }
+
   void setSplitAccumulationMode(
     SplitAccumulationMode mode, {
     required DateTime at,
@@ -638,6 +675,20 @@ class StopwatchController {
 
   String _defaultSessionTitle(DateTime date) {
     return '${date.year}/${date.month}/${date.day}';
+  }
+
+  String? _lapIdForShortcutDisplayIndex(int displayIndex) {
+    if (_laps.isEmpty) {
+      return null;
+    }
+    if (displayIndex == 0) {
+      return _laps.last.id;
+    }
+    final targetIndex = displayIndex - 1;
+    if (targetIndex < 0 || targetIndex >= _laps.length) {
+      return null;
+    }
+    return _laps[targetIndex].id;
   }
 }
 
