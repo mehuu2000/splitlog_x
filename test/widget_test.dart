@@ -1,30 +1,63 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
 import 'package:splitlog_x/main.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  testWidgets('shows SplitLog desktop preview', (WidgetTester tester) async {
+    await tester.pumpWidget(const SplitLogApp());
+    final todayTitle = _dateTitle(DateTime.now());
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    expect(find.text('SplitLog'), findsOneWidget);
+    expect(find.text(todayTitle), findsWidgets);
+    expect(find.text('全体経過'), findsOneWidget);
+    expect(find.text('Split'), findsOneWidget);
+  });
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
+  testWidgets('primary action toggles stopwatch state', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(const SplitLogApp());
+
+    expect(find.text('開始'), findsOneWidget);
+
+    await tester.tap(find.text('開始'));
     await tester.pump();
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    expect(find.text('Running'), findsOneWidget);
+    expect(find.text('停止'), findsOneWidget);
+
+    await tester.tap(find.text('停止'));
+    await tester.pump();
+
+    expect(find.text('Stopped'), findsOneWidget);
+    expect(find.text('再開'), findsOneWidget);
   });
+
+  testWidgets('session overflow closes when tapping outside', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(const SplitLogApp());
+    final todayTitle = _dateTitle(DateTime.now());
+    final addedTitle = '$todayTitle-A';
+
+    await tester.tap(find.byTooltip('セッション追加'));
+    await tester.pump();
+
+    final addedSessionFinder = find.text(addedTitle);
+    expect(addedSessionFinder.evaluate().length, 2);
+
+    await tester.tap(find.byTooltip('セッション一覧'));
+    await tester.pump();
+
+    expect(find.text(todayTitle), findsWidgets);
+    expect(addedSessionFinder.evaluate().length, greaterThan(2));
+
+    await tester.tapAt(const Offset(170, 150));
+    await tester.pump();
+
+    expect(addedSessionFinder.evaluate().length, 2);
+  });
+}
+
+String _dateTitle(DateTime date) {
+  return '${date.year}/${date.month}/${date.day}';
 }
