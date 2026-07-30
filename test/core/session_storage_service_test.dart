@@ -82,6 +82,14 @@ void main() {
     expect(restored.sessions.single.laps.single.memo, 'memo');
   });
 
+  test('uses the legacy default three-hour ring cycle', () {
+    const defaults = SplitLogSettingsSnapshot();
+    final restored = SplitLogSettingsSnapshot.fromJson(const {});
+
+    expect(defaults.ringHoursPerCycle, 3);
+    expect(restored.ringHoursPerCycle, 3);
+  });
+
   test('imports legacy SplitLog sessions.json format', () async {
     final service = SessionStorageService(
       storageFile: storageFile,

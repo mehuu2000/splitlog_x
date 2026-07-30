@@ -11,6 +11,7 @@ void main() {
     expect(find.text(todayTitle), findsWidgets);
     expect(find.text('全体経過'), findsOneWidget);
     expect(find.text('Split'), findsOneWidget);
+    expect(find.text('3h'), findsOneWidget);
   });
 
   testWidgets('primary action toggles stopwatch state', (
@@ -68,11 +69,97 @@ void main() {
 
     final summaryEditor = find.byType(TextField);
     expect(summaryEditor, findsOneWidget);
+    _expectNoFocusOutline(tester.widget<TextField>(summaryEditor));
 
     await tester.enterText(summaryEditor, '手直ししたサマリー');
     await tester.pump();
 
     expect(find.text('手直ししたサマリー'), findsOneWidget);
+
+    await tester.tapAt(const Offset(20, 180));
+    await tester.pump();
+
+    expect(find.text('サマリー'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('コピー'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.text('サマリーをコピーしました'), findsOneWidget);
+
+    await tester.pump(const Duration(seconds: 2));
+    expect(find.text('サマリーをコピーしました'), findsNothing);
+  });
+
+  testWidgets('memo remains open when tapping outside', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(const SplitLogApp());
+
+    await tester.tap(find.text('開始'));
+    await tester.pump();
+    await tester.tap(find.byTooltip('Splitメモ'));
+    await tester.pump();
+
+    expect(find.text('Splitメモ'), findsOneWidget);
+    for (final field in tester.widgetList<TextField>(find.byType(TextField))) {
+      _expectNoFocusOutline(field);
+    }
+
+    await tester.tapAt(const Offset(20, 180));
+    await tester.pump();
+
+    expect(find.text('Splitメモ'), findsOneWidget);
+  });
+
+  testWidgets('confirmation uses compact controls', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(const SplitLogApp());
+
+    await tester.tap(find.byTooltip('リセット'));
+    await tester.pump();
+
+    expect(find.text('リセットしますか？'), findsOneWidget);
+    expect(
+      tester
+          .getSize(
+            find.byKey(const ValueKey<String>('confirmation-confirm-button')),
+          )
+          .height,
+      26,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('confirmation-cancel-button')),
+    );
+    await tester.pump();
+
+    expect(find.text('リセットしますか？'), findsNothing);
+  });
+
+  testWidgets('storage actions require confirmation', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(const SplitLogApp());
+
+    await tester.tap(find.byTooltip('設定'));
+    await tester.pump();
+    await tester.drag(find.byType(ListView).last, const Offset(0, -500));
+    await tester.pump();
+
+    await tester.tap(find.byTooltip('セッション情報'));
+    await tester.pump();
+
+    expect(find.text('セッション情報を削除しますか？'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('confirmation-cancel-button')),
+    );
+    await tester.pump();
+
+    expect(find.text('設定'), findsOneWidget);
+    expect(find.text('セッション情報を削除しますか？'), findsNothing);
   });
 
   testWidgets('selected session scrolls to the center of the selector', (
@@ -88,6 +175,14 @@ void main() {
 
     await tester.tap(find.byTooltip('セッション一覧'));
     await tester.pump();
+
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('session-overflow-panel')),
+        matching: find.byIcon(Icons.check),
+      ),
+      findsNothing,
+    );
 
     await tester.tap(find.text('$todayTitle-B').last);
     await tester.pumpAndSettle();
@@ -105,4 +200,12 @@ void main() {
 
 String _dateTitle(DateTime date) {
   return '${date.year}/${date.month}/${date.day}';
+}
+
+void _expectNoFocusOutline(TextField field) {
+  final decoration = field.decoration!;
+  final enabledBorder = decoration.enabledBorder as OutlineInputBorder;
+  final focusedBorder = decoration.focusedBorder as OutlineInputBorder;
+
+  expect(focusedBorder.borderSide, enabledBorder.borderSide);
 }

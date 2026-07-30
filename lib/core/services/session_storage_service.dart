@@ -7,7 +7,7 @@ class SplitLogSettingsSnapshot {
   const SplitLogSettingsSnapshot({
     this.isLocked = false,
     this.isMonochrome = false,
-    this.ringHoursPerCycle = 4,
+    this.ringHoursPerCycle = 3,
     this.defaultSplitMode = SplitAccumulationMode.radio,
     this.summaryMemoFormat = 'bulleted',
     this.summaryTimeFormat = 'decimalHours',
@@ -40,7 +40,7 @@ class SplitLogSettingsSnapshot {
       isMonochrome: json['isMonochrome'] as bool? ?? false,
       ringHoursPerCycle: _intValue(
         json['ringHoursPerCycle'],
-        fallback: 4,
+        fallback: 3,
       ).clamp(1, 24),
       defaultSplitMode: SplitAccumulationMode.fromJson(
         json['defaultSplitMode'],
