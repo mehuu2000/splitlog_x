@@ -121,7 +121,7 @@ class AppDelegate: FlutterAppDelegate, NSWindowDelegate {
   }
 
   func toggleMainWindow() {
-    if let window = mainWindow, window.isVisible {
+    if let window = mainWindow, window.isVisible, window.isKeyWindow {
       hideMainWindow()
       return
     }
@@ -137,6 +137,7 @@ class AppDelegate: FlutterAppDelegate, NSWindowDelegate {
       return
     }
 
+    applyMainWindowPresentationBehavior(window)
     positionMainWindowNearStatusItem(window)
     NSApp.activate(ignoringOtherApps: true)
     window.level = isPopoverLocked ? .floating : .normal
@@ -154,10 +155,19 @@ class AppDelegate: FlutterAppDelegate, NSWindowDelegate {
 
   func setPopoverLocked(_ isLocked: Bool) {
     isPopoverLocked = isLocked
+    if let mainWindow {
+      applyMainWindowPresentationBehavior(mainWindow)
+    }
     mainWindow?.level = isLocked ? .floating : .normal
     if isLocked, let mainWindow, mainWindow.isVisible {
       mainWindow.orderFrontRegardless()
     }
+  }
+
+  private func applyMainWindowPresentationBehavior(_ window: NSWindow) {
+    var behavior: NSWindow.CollectionBehavior = [.transient, .fullScreenAuxiliary]
+    behavior.insert(isPopoverLocked ? .canJoinAllSpaces : .moveToActiveSpace)
+    window.collectionBehavior = behavior
   }
 
   private func showStatusMenu(relativeTo button: NSStatusBarButton) {

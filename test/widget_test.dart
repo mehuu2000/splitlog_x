@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:splitlog_x/main.dart';
 
@@ -55,6 +56,50 @@ void main() {
     await tester.pump();
 
     expect(addedSessionFinder.evaluate().length, 2);
+  });
+
+  testWidgets('summary text can be edited before copying', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(const SplitLogApp());
+
+    await tester.tap(find.byTooltip('サマリー'));
+    await tester.pump();
+
+    final summaryEditor = find.byType(TextField);
+    expect(summaryEditor, findsOneWidget);
+
+    await tester.enterText(summaryEditor, '手直ししたサマリー');
+    await tester.pump();
+
+    expect(find.text('手直ししたサマリー'), findsOneWidget);
+  });
+
+  testWidgets('selected session scrolls to the center of the selector', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(const SplitLogApp());
+    final todayTitle = _dateTitle(DateTime.now());
+
+    for (var index = 0; index < 5; index += 1) {
+      await tester.tap(find.byTooltip('セッション追加'));
+      await tester.pump();
+    }
+
+    await tester.tap(find.byTooltip('セッション一覧'));
+    await tester.pump();
+
+    await tester.tap(find.text('$todayTitle-B').last);
+    await tester.pumpAndSettle();
+
+    final viewport = tester.getRect(
+      find.byKey(const ValueKey<String>('session-selector-scroll-view')),
+    );
+    final selectedChip = tester.getRect(
+      find.byKey(const ValueKey<String>('session-selector-chip-3')),
+    );
+
+    expect(selectedChip.center.dx, closeTo(viewport.center.dx, 1));
   });
 }
 

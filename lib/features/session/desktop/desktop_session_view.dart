@@ -68,6 +68,7 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
   bool _isEditingSessionTitle = false;
   final TextEditingController _memoLabelController = TextEditingController();
   final TextEditingController _memoTextController = TextEditingController();
+  final TextEditingController _summaryTextController = TextEditingController();
   String? _memoLapId;
   String _memoElapsedText = '00:00:00';
   int _ringHoursPerCycle = 4;
@@ -118,6 +119,7 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
     _sessionTitleFocus.dispose();
     _memoLabelController.dispose();
     _memoTextController.dispose();
+    _summaryTextController.dispose();
     _appPlatformChannel.setMethodCallHandler(null);
     super.dispose();
   }
@@ -374,6 +376,38 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
     _persistState();
   }
 
+  _SessionSummary _currentSessionSummary({
+    required DateTime at,
+    _SummaryMemoFormat? memoFormat,
+    _SummaryTimeFormat? timeFormat,
+  }) {
+    return _buildSessionSummary(
+      stopwatch: _stopwatch,
+      lapSeconds: _stopwatch.displayedLapSecondsMap(at: at),
+      totalSeconds: _stopwatch.elapsedSessionSeconds(at: at),
+      memoFormat: memoFormat ?? _summaryMemoFormat,
+      timeFormat: timeFormat ?? _summaryTimeFormat,
+    );
+  }
+
+  void _replaceSummaryDraft(String text) {
+    _summaryTextController.value = TextEditingValue(
+      text: text,
+      selection: const TextSelection.collapsed(offset: 0),
+    );
+  }
+
+  void _showSummary() {
+    _commitActiveEdits();
+    final now = DateTime.now();
+    _replaceSummaryDraft(_currentSessionSummary(at: now).text);
+    setState(() {
+      _clock = now;
+      _overlay = _PreviewOverlay.summary;
+    });
+    _persistState();
+  }
+
   void _beginSessionTitleEdit() {
     _commitActiveEdits();
     setState(() {
@@ -556,11 +590,17 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
   }
 
   void _toggleSummaryMemoFormat() {
-    _setSummaryMemoFormat(
-      _summaryMemoFormat == _SummaryMemoFormat.bulleted
-          ? _SummaryMemoFormat.plain
-          : _SummaryMemoFormat.bulleted,
-    );
+    final nextFormat = _summaryMemoFormat == _SummaryMemoFormat.bulleted
+        ? _SummaryMemoFormat.plain
+        : _SummaryMemoFormat.bulleted;
+    final now = DateTime.now();
+    final summary = _currentSessionSummary(at: now, memoFormat: nextFormat);
+    setState(() {
+      _summaryMemoFormat = nextFormat;
+      _clock = now;
+    });
+    _replaceSummaryDraft(summary.text);
+    _persistState();
   }
 
   void _setSummaryTimeFormat(_SummaryTimeFormat format) {
@@ -571,11 +611,17 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
   }
 
   void _toggleSummaryTimeFormat() {
-    _setSummaryTimeFormat(
-      _summaryTimeFormat == _SummaryTimeFormat.decimalHours
-          ? _SummaryTimeFormat.hourMinute
-          : _SummaryTimeFormat.decimalHours,
-    );
+    final nextFormat = _summaryTimeFormat == _SummaryTimeFormat.decimalHours
+        ? _SummaryTimeFormat.hourMinute
+        : _SummaryTimeFormat.decimalHours;
+    final now = DateTime.now();
+    final summary = _currentSessionSummary(at: now, timeFormat: nextFormat);
+    setState(() {
+      _summaryTimeFormat = nextFormat;
+      _clock = now;
+    });
+    _replaceSummaryDraft(summary.text);
+    _persistState();
   }
 
   void _setShortcutsEnabled(bool enabled) {
@@ -794,7 +840,7 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
                     onBeginSessionTitleEdit: _beginSessionTitleEdit,
                     onCommitSessionTitleEdit: _commitSessionTitleEdit,
                     onToggleSplitMode: _setSplitMode,
-                    onSummary: () => _show(_PreviewOverlay.summary),
+                    onSummary: _showSummary,
                   ),
                   const SizedBox(height: 8),
                   Expanded(
@@ -861,6 +907,7 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
               shortcutsEnabled: _shortcutsEnabled,
               memoLabelController: _memoLabelController,
               memoTextController: _memoTextController,
+              summaryTextController: _summaryTextController,
               memoElapsedText: _memoElapsedText,
               onClose: _hideOverlay,
               onCloseMemo: _closeMemo,
@@ -923,14 +970,14 @@ class _HeaderBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 26,
+      height: 24,
       child: Row(
         children: [
-          const Icon(Icons.timer_outlined, size: 18),
+          const Icon(Icons.timer_outlined, size: 16),
           const SizedBox(width: 5),
           const Text(
             'SplitLog',
-            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
           ),
           const SizedBox(width: 8),
           _CircleIconButton(
@@ -938,7 +985,7 @@ class _HeaderBar extends StatelessWidget {
             tooltip: '使い方',
             colors: colors,
             size: 16,
-            iconSize: 10,
+            iconSize: 9,
             onPressed: onHelp,
           ),
           const SizedBox(width: 4),
@@ -947,7 +994,7 @@ class _HeaderBar extends StatelessWidget {
             tooltip: isLocked ? 'Popoverロック中' : 'Popoverロック',
             colors: colors,
             size: 16,
-            iconSize: 10,
+            iconSize: 9,
             filled: isLocked,
             onPressed: onToggleLock,
           ),
@@ -983,7 +1030,7 @@ class _HeaderBar extends StatelessWidget {
   }
 }
 
-class _SessionSelector extends StatelessWidget {
+class _SessionSelector extends StatefulWidget {
   const _SessionSelector({
     required this.colors,
     required this.sessions,
@@ -999,9 +1046,88 @@ class _SessionSelector extends StatelessWidget {
   final VoidCallback onOverflow;
 
   @override
+  State<_SessionSelector> createState() => _SessionSelectorState();
+}
+
+class _SessionSelectorState extends State<_SessionSelector> {
+  static const double _itemWidth = 74;
+  static const double _itemSpacing = 4;
+
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _scheduleSelectedSessionScroll(animated: false);
+  }
+
+  @override
+  void didUpdateWidget(covariant _SessionSelector oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final sessionCountChanged =
+        oldWidget.sessions.length != widget.sessions.length;
+    final selectionChanged = oldWidget.selectedIndex != widget.selectedIndex;
+    if (sessionCountChanged || selectionChanged) {
+      _scheduleSelectedSessionScroll(
+        animated: selectionChanged && !sessionCountChanged,
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _scheduleSelectedSessionScroll({required bool animated}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _scrollToSelectedSession(animated: animated);
+      }
+    });
+  }
+
+  void _scrollToSelectedSession({required bool animated}) {
+    if (!_scrollController.hasClients || widget.sessions.isEmpty) {
+      return;
+    }
+
+    final position = _scrollController.position;
+    final selectedIndex = widget.selectedIndex.clamp(
+      0,
+      widget.sessions.length - 1,
+    );
+    final selectedCenter =
+        selectedIndex * (_itemWidth + _itemSpacing) + (_itemWidth / 2);
+    final targetOffset = (selectedCenter - position.viewportDimension / 2)
+        .clamp(0.0, position.maxScrollExtent)
+        .toDouble();
+
+    if ((position.pixels - targetOffset).abs() < 0.5) {
+      return;
+    }
+    if (animated) {
+      _scrollController.animateTo(
+        targetOffset,
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeInOut,
+      );
+    } else {
+      _scrollController.jumpTo(targetOffset);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final colors = widget.colors;
+    final sessions = widget.sessions;
+    final selectedIndex = widget.selectedIndex;
+    final onSelect = widget.onSelect;
+    final onOverflow = widget.onOverflow;
+
     return Container(
-      height: 25,
+      height: 22,
       decoration: BoxDecoration(
         border: Border.all(color: colors.strongBorder),
         borderRadius: BorderRadius.circular(999),
@@ -1011,8 +1137,10 @@ class _SessionSelector extends StatelessWidget {
           SizedBox(
             width: 220,
             child: ListView.separated(
+              key: const ValueKey<String>('session-selector-scroll-view'),
+              controller: _scrollController,
               scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 2),
+              padding: EdgeInsets.zero,
               itemCount: sessions.length,
               separatorBuilder: (_, _) => const SizedBox(width: 4),
               itemBuilder: (context, index) {
@@ -1022,7 +1150,8 @@ class _SessionSelector extends StatelessWidget {
                   borderRadius: BorderRadius.circular(999),
                   onTap: () => onSelect(index),
                   child: Container(
-                    width: 72,
+                    key: ValueKey<String>('session-selector-chip-$index'),
+                    width: 74,
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
                       color: isSelected
@@ -1040,8 +1169,9 @@ class _SessionSelector extends StatelessWidget {
               },
             ),
           ),
+          const SizedBox(width: 4),
           SizedBox(
-            width: 24,
+            width: 22,
             child: Tooltip(
               message: 'セッション一覧',
               child: InkWell(
@@ -1421,7 +1551,7 @@ class _LapList extends StatelessWidget {
           child: ListView.separated(
             padding: EdgeInsets.zero,
             itemCount: laps.length,
-            separatorBuilder: (_, _) => const SizedBox(height: 5),
+            separatorBuilder: (_, _) => const SizedBox(height: 6),
             itemBuilder: (context, index) {
               return _LapRow(
                 colors: colors,
@@ -1494,7 +1624,7 @@ class _LapRow extends StatelessWidget {
         : (active ? Icons.check_box : Icons.check_box_outline_blank);
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(8, 6, 8, 4),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
       decoration: BoxDecoration(
         color: colors.lapCard,
         border: Border.all(color: colors.border),
@@ -1565,10 +1695,10 @@ class _LapRow extends StatelessWidget {
                 tooltip: 'Splitメモ',
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints.tightFor(
-                  width: 20,
-                  height: 20,
+                  width: 18,
+                  height: 18,
                 ),
-                iconSize: 14,
+                iconSize: 12,
                 color: colors.utility,
                 onPressed: onMemo,
                 icon: Icon(
@@ -1588,7 +1718,7 @@ class _LapRow extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 3),
+          const SizedBox(height: 2),
           Container(
             height: 2,
             decoration: BoxDecoration(
@@ -1676,6 +1806,7 @@ class _OverlayLayer extends StatelessWidget {
     required this.shortcutsEnabled,
     required this.memoLabelController,
     required this.memoTextController,
+    required this.summaryTextController,
     required this.memoElapsedText,
     required this.onClose,
     required this.onCloseMemo,
@@ -1717,6 +1848,7 @@ class _OverlayLayer extends StatelessWidget {
   final bool shortcutsEnabled;
   final TextEditingController memoLabelController;
   final TextEditingController memoTextController;
+  final TextEditingController summaryTextController;
   final String memoElapsedText;
   final VoidCallback onClose;
   final VoidCallback onCloseMemo;
@@ -1822,6 +1954,7 @@ class _OverlayLayer extends StatelessWidget {
             child: _SummaryOverlay(
               colors: colors,
               summary: summary,
+              summaryController: summaryTextController,
               onToggleMemoFormat: onToggleSummaryMemoFormat,
               onToggleTimeFormat: onToggleSummaryTimeFormat,
               onClose: onClose,
@@ -2095,111 +2228,110 @@ class _MemoOverlay extends StatelessWidget {
     return _ModalSurface(
       colors: colors,
       width: 360,
+      height: 352,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
         children: [
           const Text(
             'Splitメモ',
-            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
           Text(
             'Split名',
-            style: TextStyle(fontSize: 12, color: colors.secondaryText),
+            style: TextStyle(fontSize: 11, color: colors.secondaryText),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
           TextField(
             controller: labelController,
             maxLines: 1,
             textInputAction: TextInputAction.done,
             inputFormatters: const [_SingleLineTextFormatter()],
-            style: TextStyle(fontSize: 13, color: colors.primaryText),
+            style: TextStyle(fontSize: 12, color: colors.primaryText),
             decoration: InputDecoration(
               isDense: true,
               filled: true,
               fillColor: colors.memoFieldBackground,
               contentPadding: const EdgeInsets.symmetric(
-                horizontal: 10,
-                vertical: 8,
+                horizontal: 8,
+                vertical: 6,
               ),
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(7),
+                borderRadius: BorderRadius.circular(6),
                 borderSide: BorderSide(color: colors.border),
               ),
               enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(7),
+                borderRadius: BorderRadius.circular(6),
                 borderSide: BorderSide(color: colors.border),
               ),
               focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(7),
+                borderRadius: BorderRadius.circular(6),
                 borderSide: BorderSide(color: colors.accent),
               ),
               hintText: '作業内容',
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
           Row(
             children: [
               Text(
                 '経過時間',
-                style: TextStyle(fontSize: 12, color: colors.secondaryText),
+                style: TextStyle(fontSize: 11, color: colors.secondaryText),
               ),
               const Spacer(),
               Text(
                 elapsedText,
                 style: const TextStyle(
-                  fontSize: 13,
+                  fontSize: 12,
                   fontFeatures: [FontFeature.tabularFigures()],
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
           Text(
             'メモ',
-            style: TextStyle(fontSize: 12, color: colors.secondaryText),
+            style: TextStyle(fontSize: 11, color: colors.secondaryText),
           ),
-          const SizedBox(height: 6),
-          SizedBox(
-            height: 118,
+          const SizedBox(height: 4),
+          Expanded(
             child: TextField(
               controller: memoController,
               maxLines: null,
               expands: true,
               textAlignVertical: TextAlignVertical.top,
               style: TextStyle(
-                fontSize: 13,
-                height: 1.35,
+                fontSize: 12,
+                height: 1.3,
                 color: colors.primaryText,
               ),
               decoration: InputDecoration(
                 filled: true,
                 fillColor: colors.memoFieldBackground,
-                contentPadding: const EdgeInsets.all(8),
+                contentPadding: const EdgeInsets.all(6),
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(7),
                   borderSide: BorderSide(color: colors.border),
                 ),
                 enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(7),
                   borderSide: BorderSide(color: colors.border),
                 ),
                 focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(7),
                   borderSide: BorderSide(color: colors.accent),
                 ),
                 hintText: 'メモを入力',
               ),
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
               FilledButton(
                 onPressed: onClose,
-                style: colors.filledButtonStyle(),
+                style: colors.compactFilledButtonStyle(),
                 child: const Text('閉じる'),
               ),
             ],
@@ -2214,6 +2346,7 @@ class _SummaryOverlay extends StatelessWidget {
   const _SummaryOverlay({
     required this.colors,
     required this.summary,
+    required this.summaryController,
     required this.onToggleMemoFormat,
     required this.onToggleTimeFormat,
     required this.onClose,
@@ -2221,6 +2354,7 @@ class _SummaryOverlay extends StatelessWidget {
 
   final _DesktopPreviewColors colors;
   final _SessionSummary summary;
+  final TextEditingController summaryController;
   final VoidCallback onToggleMemoFormat;
   final VoidCallback onToggleTimeFormat;
   final VoidCallback onClose;
@@ -2230,70 +2364,95 @@ class _SummaryOverlay extends StatelessWidget {
     return _ModalSurface(
       colors: colors,
       width: 400,
+      height: 352,
       child: Column(
-        mainAxisSize: MainAxisSize.min,
         children: [
           Row(
             children: [
               const Text(
                 'サマリー',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 6),
               _SmallPill(
                 colors: colors,
                 label: summary.memoFormatLabel,
                 tooltip: 'メモ表示形式を切り替え',
                 onPressed: onToggleMemoFormat,
               ),
-              const SizedBox(width: 6),
+              const SizedBox(width: 5),
               _SmallPill(
                 colors: colors,
                 label: summary.timeFormatLabel,
                 tooltip: '時間表示形式を切り替え',
                 onPressed: onToggleTimeFormat,
               ),
-              const Spacer(),
-              Text(
-                summary.headerText,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 11, color: colors.secondaryText),
-              ),
               const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  summary.headerText,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.end,
+                  style: TextStyle(fontSize: 10, color: colors.secondaryText),
+                ),
+              ),
+              const SizedBox(width: 6),
               IconButton(
                 tooltip: 'コピー',
-                iconSize: 16,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints.tightFor(
+                  width: 28,
+                  height: 28,
+                ),
+                iconSize: 14,
                 onPressed: () {
-                  Clipboard.setData(ClipboardData(text: summary.text));
+                  Clipboard.setData(
+                    ClipboardData(text: summaryController.text),
+                  );
                 },
                 icon: const Icon(Icons.copy),
               ),
             ],
           ),
-          const SizedBox(height: 10),
-          Container(
-            height: 218,
-            width: double.infinity,
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.70),
-              border: Border.all(color: colors.border),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: SingleChildScrollView(
-              child: SelectableText(
-                summary.text,
-                style: const TextStyle(height: 1.45),
+          const SizedBox(height: 8),
+          Expanded(
+            child: TextField(
+              controller: summaryController,
+              maxLines: null,
+              expands: true,
+              textAlignVertical: TextAlignVertical.top,
+              style: TextStyle(
+                color: colors.primaryText,
+                fontSize: 12,
+                height: 1.3,
+              ),
+              decoration: InputDecoration(
+                filled: true,
+                fillColor: colors.memoFieldBackground,
+                contentPadding: const EdgeInsets.all(8),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(7),
+                  borderSide: BorderSide(color: colors.border),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(7),
+                  borderSide: BorderSide(color: colors.border),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(7),
+                  borderSide: BorderSide(color: colors.accent),
+                ),
               ),
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
               FilledButton(
                 onPressed: onClose,
-                style: colors.filledButtonStyle(),
+                style: colors.compactFilledButtonStyle(),
                 child: const Text('閉じる'),
               ),
             ],
@@ -3915,6 +4074,19 @@ class _DesktopPreviewColors {
       foregroundColor: Colors.white,
       disabledBackgroundColor: disabledButtonBackground,
       disabledForegroundColor: disabledText,
+    );
+  }
+
+  ButtonStyle compactFilledButtonStyle() {
+    return FilledButton.styleFrom(
+      backgroundColor: accent,
+      foregroundColor: Colors.white,
+      minimumSize: const Size(60, 26),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      visualDensity: VisualDensity.standard,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(7)),
     );
   }
 
