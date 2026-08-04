@@ -111,12 +111,19 @@ void main() {
     await tester.pump();
 
     final summaryEditor = find.byType(TextField);
+    await tester.tap(find.byKey(const ValueKey<String>('summary-format-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('テンプ').last);
+    await tester.pumpAndSettle();
+
     var summary = tester.widget<TextField>(summaryEditor).controller!.text;
     expect(summary, contains('[実装]'));
     expect(summary, contains('- 確認メモ'));
 
-    await tester.tap(find.text('- メモ'));
-    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey<String>('summary-format-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('標準').last);
+    await tester.pumpAndSettle();
 
     summary = tester.widget<TextField>(summaryEditor).controller!.text;
     expect(summary, contains('実装'));
@@ -192,6 +199,84 @@ void main() {
 
     expect(find.text('設定'), findsOneWidget);
     expect(find.text('セッション情報を削除しますか？'), findsNothing);
+  });
+
+  testWidgets('custom summary format can be previewed, renamed, and deleted', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(const SplitLogApp());
+
+    await tester.tap(find.byTooltip('設定'));
+    await tester.pump();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey<String>('settings-summary-format-menu')),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('settings-summary-format-menu')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('カスタムを追加').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('カスタムフォーマット'), findsOneWidget);
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('format-title-template-field')),
+      '#### {title}',
+    );
+    await tester.pump();
+
+    final preview = tester.widget<Text>(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('summary-format-preview')),
+        matching: find.byType(Text),
+      ),
+    );
+    expect(preview.data, contains('####␣API実装'));
+
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('format-name-field')),
+      '日報',
+    );
+    await tester.tap(find.text('保存'));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey<String>('settings-summary-format-menu')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('日報'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('カスタムを編集'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('format-name-field')),
+      '日次報告',
+    );
+    await tester.tap(find.text('保存'));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey<String>('settings-summary-format-menu')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('日次報告'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('カスタムを編集'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('削除'));
+    await tester.pump();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('confirmation-confirm-button')),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey<String>('settings-summary-format-menu')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('標準'), findsOneWidget);
   });
 
   testWidgets('selected session scrolls to the center of the selector', (

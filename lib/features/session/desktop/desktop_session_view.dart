@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../core/models/session_models.dart';
+import '../../../core/models/summary_format.dart';
 import '../../../core/services/session_storage_service.dart';
 import '../../../core/services/stopwatch_controller.dart';
 
@@ -22,8 +23,6 @@ enum _PreviewOverlay {
   legacyImport,
   legacyImportMissing,
 }
-
-enum _SummaryMemoFormat { bulleted, plain }
 
 enum _SummaryTimeFormat { decimalHours, hourMinute }
 
@@ -62,13 +61,6 @@ enum _SettingsStorageAction {
     _SettingsStorageAction.initializeAllData => true,
     _SettingsStorageAction.resetSettings => false,
   };
-}
-
-_SummaryMemoFormat _summaryMemoFormatFromName(String value) {
-  return _SummaryMemoFormat.values.firstWhere(
-    (format) => format.name == value,
-    orElse: () => _SummaryMemoFormat.bulleted,
-  );
 }
 
 _SummaryTimeFormat _summaryTimeFormatFromName(String value) {
@@ -114,7 +106,8 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
   String _memoElapsedText = '00:00:00';
   int _ringHoursPerCycle = 3;
   SplitAccumulationMode _defaultSplitMode = SplitAccumulationMode.radio;
-  _SummaryMemoFormat _summaryMemoFormat = _SummaryMemoFormat.bulleted;
+  String _selectedSummaryFormatId = standardSummaryFormatId;
+  List<SummaryFormatDefinition> _customSummaryFormats = [];
   _SummaryTimeFormat _summaryTimeFormat = _SummaryTimeFormat.decimalHours;
   bool _shortcutsEnabled = true;
 
@@ -251,9 +244,11 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
     _isMonochrome = snapshot.settings.isMonochrome;
     _ringHoursPerCycle = snapshot.settings.ringHoursPerCycle.clamp(1, 24);
     _defaultSplitMode = snapshot.settings.defaultSplitMode;
-    _summaryMemoFormat = _summaryMemoFormatFromName(
-      snapshot.settings.summaryMemoFormat,
-    );
+    _customSummaryFormats = List.of(snapshot.settings.customSummaryFormats);
+    _selectedSummaryFormatId = resolveSummaryFormat(
+      snapshot.settings.selectedSummaryFormatId,
+      _customSummaryFormats,
+    ).id;
     _summaryTimeFormat = _summaryTimeFormatFromName(
       snapshot.settings.summaryTimeFormat,
     );
@@ -273,7 +268,8 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
         isMonochrome: _isMonochrome,
         ringHoursPerCycle: _ringHoursPerCycle,
         defaultSplitMode: _defaultSplitMode,
-        summaryMemoFormat: _summaryMemoFormat.name,
+        selectedSummaryFormatId: _selectedSummaryFormatId,
+        customSummaryFormats: _customSummaryFormats,
         summaryTimeFormat: _summaryTimeFormat.name,
         shortcutsEnabled: _shortcutsEnabled,
       ),
@@ -423,15 +419,22 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
 
   _SessionSummary _currentSessionSummary({
     required DateTime at,
-    _SummaryMemoFormat? memoFormat,
+    SummaryFormatDefinition? format,
     _SummaryTimeFormat? timeFormat,
   }) {
     return _buildSessionSummary(
       stopwatch: _stopwatch,
       lapSeconds: _stopwatch.displayedLapSecondsMap(at: at),
       totalSeconds: _stopwatch.elapsedSessionSeconds(at: at),
-      memoFormat: memoFormat ?? _summaryMemoFormat,
+      format: format ?? _selectedSummaryFormat,
       timeFormat: timeFormat ?? _summaryTimeFormat,
+    );
+  }
+
+  SummaryFormatDefinition get _selectedSummaryFormat {
+    return resolveSummaryFormat(
+      _selectedSummaryFormatId,
+      _customSummaryFormats,
     );
   }
 
@@ -598,7 +601,8 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
       _isMonochrome = false;
       _ringHoursPerCycle = 3;
       _defaultSplitMode = SplitAccumulationMode.radio;
-      _summaryMemoFormat = _SummaryMemoFormat.bulleted;
+      _selectedSummaryFormatId = standardSummaryFormatId;
+      _customSummaryFormats = [];
       _summaryTimeFormat = _SummaryTimeFormat.decimalHours;
       _shortcutsEnabled = true;
     });
@@ -669,24 +673,57 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
     _persistState();
   }
 
-  void _setSummaryMemoFormat(_SummaryMemoFormat format) {
+  void _setSummaryFormat(String formatId) {
+    final resolved = resolveSummaryFormat(formatId, _customSummaryFormats);
     setState(() {
-      _summaryMemoFormat = format;
+      _selectedSummaryFormatId = resolved.id;
     });
     _persistState();
   }
 
-  void _toggleSummaryMemoFormat() {
-    final nextFormat = _summaryMemoFormat == _SummaryMemoFormat.bulleted
-        ? _SummaryMemoFormat.plain
-        : _SummaryMemoFormat.bulleted;
+  void _setSummaryFormatFromSummary(String formatId) {
+    final format = resolveSummaryFormat(formatId, _customSummaryFormats);
     final now = DateTime.now();
-    final summary = _currentSessionSummary(at: now, memoFormat: nextFormat);
+    final summary = _currentSessionSummary(at: now, format: format);
     setState(() {
-      _summaryMemoFormat = nextFormat;
+      _selectedSummaryFormatId = format.id;
       _clock = now;
     });
     _replaceSummaryDraft(summary.text);
+    _persistState();
+  }
+
+  void _saveCustomSummaryFormat(SummaryFormatDefinition format) {
+    final existingIndex = _customSummaryFormats.indexWhere(
+      (candidate) => candidate.id == format.id,
+    );
+    setState(() {
+      if (existingIndex < 0) {
+        _customSummaryFormats = [..._customSummaryFormats, format];
+      } else {
+        _customSummaryFormats = [
+          for (var index = 0; index < _customSummaryFormats.length; index += 1)
+            if (index == existingIndex)
+              format
+            else
+              _customSummaryFormats[index],
+        ];
+      }
+      _selectedSummaryFormatId = format.id;
+    });
+    _persistState();
+  }
+
+  void _deleteCustomSummaryFormat(String formatId) {
+    setState(() {
+      _customSummaryFormats = [
+        for (final format in _customSummaryFormats)
+          if (format.id != formatId) format,
+      ];
+      if (_selectedSummaryFormatId == formatId) {
+        _selectedSummaryFormatId = standardSummaryFormatId;
+      }
+    });
     _persistState();
   }
 
@@ -885,7 +922,7 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
       stopwatch: _stopwatch,
       lapSeconds: lapSeconds,
       totalSeconds: _totalSeconds,
-      memoFormat: _summaryMemoFormat,
+      format: _selectedSummaryFormat,
       timeFormat: _summaryTimeFormat,
     );
 
@@ -993,7 +1030,8 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
               isMonochrome: _isMonochrome,
               ringHoursPerCycle: _ringHoursPerCycle,
               defaultSplitMode: _defaultSplitMode,
-              summaryMemoFormat: _summaryMemoFormat,
+              selectedSummaryFormatId: _selectedSummaryFormatId,
+              customSummaryFormats: _customSummaryFormats,
               summaryTimeFormat: _summaryTimeFormat,
               summary: summary,
               summaryTimePreviewLabel: summary.timeFormatLabel,
@@ -1013,9 +1051,11 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
               onSetTheme: _setTheme,
               onSetRingHoursPerCycle: _setRingHoursPerCycle,
               onSetDefaultSplitMode: _setDefaultSplitMode,
-              onSetSummaryMemoFormat: _setSummaryMemoFormat,
+              onSetSummaryFormat: _setSummaryFormat,
+              onSaveCustomSummaryFormat: _saveCustomSummaryFormat,
+              onDeleteCustomSummaryFormat: _deleteCustomSummaryFormat,
               onSetSummaryTimeFormat: _setSummaryTimeFormat,
-              onToggleSummaryMemoFormat: _toggleSummaryMemoFormat,
+              onSetSummaryFormatFromSummary: _setSummaryFormatFromSummary,
               onToggleSummaryTimeFormat: _toggleSummaryTimeFormat,
               onCopySummary: () => unawaited(_copySummary()),
               onSetShortcutsEnabled: _setShortcutsEnabled,
@@ -2025,7 +2065,8 @@ class _OverlayLayer extends StatelessWidget {
     required this.isMonochrome,
     required this.ringHoursPerCycle,
     required this.defaultSplitMode,
-    required this.summaryMemoFormat,
+    required this.selectedSummaryFormatId,
+    required this.customSummaryFormats,
     required this.summaryTimeFormat,
     required this.summary,
     required this.summaryTimePreviewLabel,
@@ -2045,9 +2086,11 @@ class _OverlayLayer extends StatelessWidget {
     required this.onSetTheme,
     required this.onSetRingHoursPerCycle,
     required this.onSetDefaultSplitMode,
-    required this.onSetSummaryMemoFormat,
+    required this.onSetSummaryFormat,
+    required this.onSaveCustomSummaryFormat,
+    required this.onDeleteCustomSummaryFormat,
     required this.onSetSummaryTimeFormat,
-    required this.onToggleSummaryMemoFormat,
+    required this.onSetSummaryFormatFromSummary,
     required this.onToggleSummaryTimeFormat,
     required this.onCopySummary,
     required this.onSetShortcutsEnabled,
@@ -2068,7 +2111,8 @@ class _OverlayLayer extends StatelessWidget {
   final bool isMonochrome;
   final int ringHoursPerCycle;
   final SplitAccumulationMode defaultSplitMode;
-  final _SummaryMemoFormat summaryMemoFormat;
+  final String selectedSummaryFormatId;
+  final List<SummaryFormatDefinition> customSummaryFormats;
   final _SummaryTimeFormat summaryTimeFormat;
   final _SessionSummary summary;
   final String summaryTimePreviewLabel;
@@ -2088,9 +2132,11 @@ class _OverlayLayer extends StatelessWidget {
   final ValueChanged<bool> onSetTheme;
   final ValueChanged<int> onSetRingHoursPerCycle;
   final ValueChanged<SplitAccumulationMode> onSetDefaultSplitMode;
-  final ValueChanged<_SummaryMemoFormat> onSetSummaryMemoFormat;
+  final ValueChanged<String> onSetSummaryFormat;
+  final ValueChanged<SummaryFormatDefinition> onSaveCustomSummaryFormat;
+  final ValueChanged<String> onDeleteCustomSummaryFormat;
   final ValueChanged<_SummaryTimeFormat> onSetSummaryTimeFormat;
-  final VoidCallback onToggleSummaryMemoFormat;
+  final ValueChanged<String> onSetSummaryFormatFromSummary;
   final VoidCallback onToggleSummaryTimeFormat;
   final VoidCallback onCopySummary;
   final ValueChanged<bool> onSetShortcutsEnabled;
@@ -2184,8 +2230,10 @@ class _OverlayLayer extends StatelessWidget {
             child: _SummaryOverlay(
               colors: colors,
               summary: summary,
+              selectedSummaryFormatId: selectedSummaryFormatId,
+              customSummaryFormats: customSummaryFormats,
               summaryController: summaryTextController,
-              onToggleMemoFormat: onToggleSummaryMemoFormat,
+              onSelectSummaryFormat: onSetSummaryFormatFromSummary,
               onToggleTimeFormat: onToggleSummaryTimeFormat,
               onCopy: onCopySummary,
               onClose: onClose,
@@ -2202,14 +2250,17 @@ class _OverlayLayer extends StatelessWidget {
               onOpenContact: onOpenContact,
               ringHoursPerCycle: ringHoursPerCycle,
               defaultSplitMode: defaultSplitMode,
-              summaryMemoFormat: summaryMemoFormat,
+              selectedSummaryFormatId: selectedSummaryFormatId,
+              customSummaryFormats: customSummaryFormats,
               summaryTimeFormat: summaryTimeFormat,
               summaryTimePreviewLabel: summaryTimePreviewLabel,
               shortcutsEnabled: shortcutsEnabled,
               onSetTheme: onSetTheme,
               onSetRingHoursPerCycle: onSetRingHoursPerCycle,
               onSetDefaultSplitMode: onSetDefaultSplitMode,
-              onSetSummaryMemoFormat: onSetSummaryMemoFormat,
+              onSetSummaryFormat: onSetSummaryFormat,
+              onSaveCustomSummaryFormat: onSaveCustomSummaryFormat,
+              onDeleteCustomSummaryFormat: onDeleteCustomSummaryFormat,
               onSetSummaryTimeFormat: onSetSummaryTimeFormat,
               onSetShortcutsEnabled: onSetShortcutsEnabled,
               onRequestLegacyImport: onRequestLegacyImport,
@@ -2573,8 +2624,10 @@ class _SummaryOverlay extends StatelessWidget {
   const _SummaryOverlay({
     required this.colors,
     required this.summary,
+    required this.selectedSummaryFormatId,
+    required this.customSummaryFormats,
     required this.summaryController,
-    required this.onToggleMemoFormat,
+    required this.onSelectSummaryFormat,
     required this.onToggleTimeFormat,
     required this.onCopy,
     required this.onClose,
@@ -2582,8 +2635,10 @@ class _SummaryOverlay extends StatelessWidget {
 
   final _DesktopPreviewColors colors;
   final _SessionSummary summary;
+  final String selectedSummaryFormatId;
+  final List<SummaryFormatDefinition> customSummaryFormats;
   final TextEditingController summaryController;
-  final VoidCallback onToggleMemoFormat;
+  final ValueChanged<String> onSelectSummaryFormat;
   final VoidCallback onToggleTimeFormat;
   final VoidCallback onCopy;
   final VoidCallback onClose;
@@ -2603,11 +2658,11 @@ class _SummaryOverlay extends StatelessWidget {
                 style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
               ),
               const SizedBox(width: 6),
-              _SmallPill(
+              _SummaryFormatPill(
                 colors: colors,
-                label: summary.memoFormatLabel,
-                tooltip: 'メモ表示形式を切り替え',
-                onPressed: onToggleMemoFormat,
+                selectedFormatId: selectedSummaryFormatId,
+                customFormats: customSummaryFormats,
+                onSelected: onSelectSummaryFormat,
               ),
               const SizedBox(width: 5),
               _SmallPill(
@@ -2687,14 +2742,17 @@ class _SettingsOverlay extends StatefulWidget {
     required this.onOpenContact,
     required this.ringHoursPerCycle,
     required this.defaultSplitMode,
-    required this.summaryMemoFormat,
+    required this.selectedSummaryFormatId,
+    required this.customSummaryFormats,
     required this.summaryTimeFormat,
     required this.summaryTimePreviewLabel,
     required this.shortcutsEnabled,
     required this.onSetTheme,
     required this.onSetRingHoursPerCycle,
     required this.onSetDefaultSplitMode,
-    required this.onSetSummaryMemoFormat,
+    required this.onSetSummaryFormat,
+    required this.onSaveCustomSummaryFormat,
+    required this.onDeleteCustomSummaryFormat,
     required this.onSetSummaryTimeFormat,
     required this.onSetShortcutsEnabled,
     required this.onRequestLegacyImport,
@@ -2714,14 +2772,17 @@ class _SettingsOverlay extends StatefulWidget {
   final VoidCallback onOpenContact;
   final int ringHoursPerCycle;
   final SplitAccumulationMode defaultSplitMode;
-  final _SummaryMemoFormat summaryMemoFormat;
+  final String selectedSummaryFormatId;
+  final List<SummaryFormatDefinition> customSummaryFormats;
   final _SummaryTimeFormat summaryTimeFormat;
   final String summaryTimePreviewLabel;
   final bool shortcutsEnabled;
   final ValueChanged<bool> onSetTheme;
   final ValueChanged<int> onSetRingHoursPerCycle;
   final ValueChanged<SplitAccumulationMode> onSetDefaultSplitMode;
-  final ValueChanged<_SummaryMemoFormat> onSetSummaryMemoFormat;
+  final ValueChanged<String> onSetSummaryFormat;
+  final ValueChanged<SummaryFormatDefinition> onSaveCustomSummaryFormat;
+  final ValueChanged<String> onDeleteCustomSummaryFormat;
   final ValueChanged<_SummaryTimeFormat> onSetSummaryTimeFormat;
   final ValueChanged<bool> onSetShortcutsEnabled;
   final VoidCallback onRequestLegacyImport;
@@ -2736,6 +2797,8 @@ class _SettingsOverlay extends StatefulWidget {
   Widget buildModal(
     BuildContext context, {
     required ValueChanged<_SettingsStorageAction> onRequestStorageAction,
+    required VoidCallback onAddSummaryFormat,
+    required ValueChanged<SummaryFormatDefinition> onEditSummaryFormat,
   }) {
     return _ModalSurface(
       colors: colors,
@@ -2831,17 +2894,28 @@ class _SettingsOverlay extends StatefulWidget {
                   children: [
                     _SettingsRow(
                       colors: colors,
-                      title: 'メモ表示形式',
-                      trailing: _MenuValuePill(
-                        colors: colors,
-                        label: summaryMemoFormat == _SummaryMemoFormat.bulleted
-                            ? '- メモ'
-                            : 'メモ',
-                        onPressed: () => onSetSummaryMemoFormat(
-                          summaryMemoFormat == _SummaryMemoFormat.bulleted
-                              ? _SummaryMemoFormat.plain
-                              : _SummaryMemoFormat.bulleted,
-                        ),
+                      title: 'サマリー表示フォーマット',
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _SummaryFormatMenu(
+                            colors: colors,
+                            selectedFormatId: selectedSummaryFormatId,
+                            customFormats: customSummaryFormats,
+                            onSelected: onSetSummaryFormat,
+                            onAdd: onAddSummaryFormat,
+                          ),
+                          const SizedBox(width: 5),
+                          _SummaryFormatEditButton(
+                            colors: colors,
+                            selectedFormat: resolveSummaryFormat(
+                              selectedSummaryFormatId,
+                              customSummaryFormats,
+                            ),
+                            onAdd: onAddSummaryFormat,
+                            onEdit: onEditSummaryFormat,
+                          ),
+                        ],
                       ),
                     ),
                     const SizedBox(height: 6),
@@ -3006,24 +3080,55 @@ class _SettingsOverlay extends StatefulWidget {
 
 class _SettingsOverlayState extends State<_SettingsOverlay> {
   _SettingsStorageAction? _pendingStorageAction;
+  SummaryFormatDefinition? _editingSummaryFormat;
+  bool _editingNewSummaryFormat = false;
+  bool _confirmSummaryFormatDelete = false;
 
   @override
   Widget build(BuildContext context) {
     final action = _pendingStorageAction;
+    final editingFormat = _editingSummaryFormat;
     return SizedBox(
       width: 540,
       height: 380,
       child: Stack(
         children: [
           Center(
-            child: widget.buildModal(
-              context,
-              onRequestStorageAction: (requestedAction) {
-                setState(() {
-                  _pendingStorageAction = requestedAction;
-                });
-              },
-            ),
+            child: editingFormat == null
+                ? widget.buildModal(
+                    context,
+                    onRequestStorageAction: (requestedAction) {
+                      setState(() {
+                        _pendingStorageAction = requestedAction;
+                      });
+                    },
+                    onAddSummaryFormat: _beginNewSummaryFormat,
+                    onEditSummaryFormat: _beginEditSummaryFormat,
+                  )
+                : _SummaryFormatEditor(
+                    key: ValueKey<String>(editingFormat.id),
+                    colors: widget.colors,
+                    initialFormat: editingFormat,
+                    canDelete: !_editingNewSummaryFormat,
+                    onCancel: () {
+                      setState(() {
+                        _editingSummaryFormat = null;
+                        _editingNewSummaryFormat = false;
+                      });
+                    },
+                    onSave: (format) {
+                      widget.onSaveCustomSummaryFormat(format);
+                      setState(() {
+                        _editingSummaryFormat = null;
+                        _editingNewSummaryFormat = false;
+                      });
+                    },
+                    onDelete: () {
+                      setState(() {
+                        _confirmSummaryFormatDelete = true;
+                      });
+                    },
+                  ),
           ),
           if (action != null)
             _ConfirmationOverlay(
@@ -3044,9 +3149,69 @@ class _SettingsOverlayState extends State<_SettingsOverlay> {
                 });
               },
             ),
+          if (_confirmSummaryFormatDelete && editingFormat != null)
+            _ConfirmationOverlay(
+              colors: widget.colors,
+              title: '${editingFormat.name}を削除しますか？',
+              message: 'このカスタムフォーマットと置換ルールを削除します。',
+              confirmTitle: '削除',
+              destructive: true,
+              onClose: () {
+                setState(() {
+                  _confirmSummaryFormatDelete = false;
+                });
+              },
+              onConfirm: () {
+                widget.onDeleteCustomSummaryFormat(editingFormat.id);
+                setState(() {
+                  _confirmSummaryFormatDelete = false;
+                  _editingSummaryFormat = null;
+                  _editingNewSummaryFormat = false;
+                });
+              },
+            ),
         ],
       ),
     );
+  }
+
+  void _beginNewSummaryFormat() {
+    var suffix = 1;
+    final usedNames = widget.customSummaryFormats
+        .map((format) => format.name)
+        .toSet();
+    while (usedNames.contains('カスタム$suffix')) {
+      suffix += 1;
+    }
+    final timestamp = DateTime.now().microsecondsSinceEpoch;
+    setState(() {
+      _editingSummaryFormat = templateSummaryFormat.copyWith(
+        id: 'custom-$timestamp',
+        name: 'カスタム$suffix',
+        rules: [
+          for (
+            var index = 0;
+            index < templateSummaryFormat.rules.length;
+            index += 1
+          )
+            templateSummaryFormat.rules[index].copyWith(
+              id: 'rule-$timestamp-$index',
+            ),
+        ],
+      );
+      _editingNewSummaryFormat = true;
+    });
+  }
+
+  void _beginEditSummaryFormat(SummaryFormatDefinition format) {
+    if (format.isBuiltIn) {
+      _beginNewSummaryFormat();
+      return;
+    }
+    setState(() {
+      _editingSummaryFormat = format;
+      _editingNewSummaryFormat = false;
+    });
   }
 
   void _performStorageAction(_SettingsStorageAction action) {
@@ -3065,6 +3230,677 @@ class _SettingsOverlayState extends State<_SettingsOverlay> {
         break;
     }
   }
+}
+
+class _SummaryFormatEditor extends StatefulWidget {
+  const _SummaryFormatEditor({
+    super.key,
+    required this.colors,
+    required this.initialFormat,
+    required this.canDelete,
+    required this.onCancel,
+    required this.onSave,
+    required this.onDelete,
+  });
+
+  final _DesktopPreviewColors colors;
+  final SummaryFormatDefinition initialFormat;
+  final bool canDelete;
+  final VoidCallback onCancel;
+  final ValueChanged<SummaryFormatDefinition> onSave;
+  final VoidCallback onDelete;
+
+  @override
+  State<_SummaryFormatEditor> createState() => _SummaryFormatEditorState();
+}
+
+class _SummaryFormatEditorState extends State<_SummaryFormatEditor> {
+  late final TextEditingController _nameController;
+  late final TextEditingController _titleTemplateController;
+  late final TextEditingController _timeTemplateController;
+  late final TextEditingController _memoTemplateController;
+  late final TextEditingController _exampleTitleController;
+  late final TextEditingController _exampleTimeController;
+  late final TextEditingController _exampleMemoController;
+  final List<_SummaryRuleControllers> _rules = [];
+  var _nextRuleNumber = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = _controller(widget.initialFormat.name);
+    _titleTemplateController = _controller(widget.initialFormat.titleTemplate);
+    _timeTemplateController = _controller(widget.initialFormat.timeTemplate);
+    _memoTemplateController = _controller(widget.initialFormat.memoTemplate);
+    _exampleTitleController = _controller('API実装');
+    _exampleTimeController = _controller('1.1h');
+    _exampleMemoController = _controller(
+      '認証処理とデータ保存の実装を進めました。\nエラー処理を追加して動作確認を続けます。',
+    );
+    for (final rule in widget.initialFormat.rules) {
+      _rules.add(_ruleControllers(rule));
+    }
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _titleTemplateController.dispose();
+    _timeTemplateController.dispose();
+    _memoTemplateController.dispose();
+    _exampleTitleController.dispose();
+    _exampleTimeController.dispose();
+    _exampleMemoController.dispose();
+    for (final rule in _rules) {
+      rule.dispose();
+    }
+    super.dispose();
+  }
+
+  TextEditingController _controller(String value) {
+    final controller = TextEditingController(
+      text: _encodeVisibleWhitespace(value),
+    );
+    controller.addListener(_refreshPreview);
+    return controller;
+  }
+
+  _SummaryRuleControllers _ruleControllers(SummaryReplacementRule rule) {
+    _nextRuleNumber += 1;
+    return _SummaryRuleControllers(
+      id: rule.id.isEmpty
+          ? 'rule-${DateTime.now().microsecondsSinceEpoch}-$_nextRuleNumber'
+          : rule.id,
+      matchController: _controller(rule.match),
+      replacementController: _controller(rule.replacement),
+    );
+  }
+
+  void _refreshPreview() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  SummaryFormatDefinition get _draftFormat {
+    final name = _decodeVisibleWhitespace(_nameController.text).trim();
+    return widget.initialFormat.copyWith(
+      name: name.isEmpty ? widget.initialFormat.name : name,
+      titleTemplate: _decodeVisibleWhitespace(_titleTemplateController.text),
+      timeTemplate: _decodeVisibleWhitespace(_timeTemplateController.text),
+      memoTemplate: _decodeVisibleWhitespace(_memoTemplateController.text),
+      rules: [
+        for (final rule in _rules)
+          SummaryReplacementRule(
+            id: rule.id,
+            match: _decodeVisibleWhitespace(rule.matchController.text),
+            replacement: _decodeVisibleWhitespace(
+              rule.replacementController.text,
+            ),
+          ),
+      ],
+    );
+  }
+
+  String get _previewText {
+    return renderSummaryEntry(
+      format: _draftFormat,
+      title: _decodeVisibleWhitespace(_exampleTitleController.text),
+      time: _decodeVisibleWhitespace(_exampleTimeController.text),
+      memo: _decodeVisibleWhitespace(_exampleMemoController.text),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = widget.colors;
+    return _ModalSurface(
+      colors: colors,
+      width: 516,
+      height: 356,
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              const Text(
+                'カスタムフォーマット',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+              ),
+              const Spacer(),
+              Text(
+                '␣ 半角  □ 全角  ↵ 改行',
+                style: TextStyle(fontSize: 10, color: colors.secondaryText),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Expanded(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SizedBox(width: 216, child: _buildPreviewColumn(colors)),
+                const SizedBox(width: 10),
+                VerticalDivider(width: 1, color: colors.border),
+                const SizedBox(width: 10),
+                Expanded(child: _buildEditorColumn(colors)),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              if (widget.canDelete)
+                _CompactDialogButton(
+                  colors: colors,
+                  label: '削除',
+                  destructive: true,
+                  onPressed: widget.onDelete,
+                ),
+              const Spacer(),
+              _CompactDialogButton(
+                colors: colors,
+                label: 'キャンセル',
+                onPressed: widget.onCancel,
+              ),
+              const SizedBox(width: 8),
+              _CompactDialogButton(
+                colors: colors,
+                label: '保存',
+                prominent: true,
+                onPressed: () => widget.onSave(_draftFormat),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPreviewColumn(_DesktopPreviewColors colors) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SectionLabel(colors: colors, label: '入力例'),
+        const SizedBox(height: 5),
+        _EditorField(
+          colors: colors,
+          controller: _exampleTitleController,
+          label: 'Split名',
+          fieldKey: const ValueKey<String>('format-example-title-field'),
+        ),
+        const SizedBox(height: 5),
+        _EditorField(
+          colors: colors,
+          controller: _exampleTimeController,
+          label: '作業時間',
+          fieldKey: const ValueKey<String>('format-example-time-field'),
+        ),
+        const SizedBox(height: 5),
+        _EditorField(
+          colors: colors,
+          controller: _exampleMemoController,
+          label: 'メモ',
+          lines: 2,
+          fieldKey: const ValueKey<String>('format-example-memo-field'),
+        ),
+        const SizedBox(height: 7),
+        _SectionLabel(colors: colors, label: 'サマリープレビュー'),
+        const SizedBox(height: 5),
+        Expanded(
+          child: Container(
+            key: const ValueKey<String>('summary-format-preview'),
+            width: double.infinity,
+            padding: const EdgeInsets.all(7),
+            decoration: BoxDecoration(
+              color: colors.memoFieldBackground,
+              border: Border.all(color: colors.border),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: SingleChildScrollView(
+              child: Text(
+                _encodeVisiblePreview(_previewText),
+                style: TextStyle(
+                  color: colors.primaryText,
+                  fontSize: 10,
+                  height: 1.35,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildEditorColumn(_DesktopPreviewColors colors) {
+    return ListView(
+      padding: EdgeInsets.zero,
+      children: [
+        _EditorField(
+          colors: colors,
+          controller: _nameController,
+          label: 'フォーマット名',
+          fieldKey: const ValueKey<String>('format-name-field'),
+        ),
+        const SizedBox(height: 7),
+        _TemplateEditorField(
+          colors: colors,
+          controller: _titleTemplateController,
+          label: 'タイトル表示',
+          token: '{title}',
+          fieldKey: const ValueKey<String>('format-title-template-field'),
+        ),
+        const SizedBox(height: 7),
+        _TemplateEditorField(
+          colors: colors,
+          controller: _timeTemplateController,
+          label: '作業時間表示',
+          token: '{time}',
+          fieldKey: const ValueKey<String>('format-time-template-field'),
+        ),
+        const SizedBox(height: 7),
+        _TemplateEditorField(
+          colors: colors,
+          controller: _memoTemplateController,
+          label: 'メモ表示',
+          token: '{memo}',
+          fieldKey: const ValueKey<String>('format-memo-template-field'),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            _SectionLabel(colors: colors, label: '文字列置換ルール'),
+            const Spacer(),
+            _MiniIconButton(
+              colors: colors,
+              icon: Icons.add,
+              tooltip: 'ルールを追加',
+              onPressed: _addRule,
+            ),
+          ],
+        ),
+        const SizedBox(height: 5),
+        if (_rules.isEmpty)
+          Text(
+            'ルールなし',
+            style: TextStyle(fontSize: 10, color: colors.secondaryText),
+          ),
+        for (var index = 0; index < _rules.length; index += 1) ...[
+          _buildRuleEditor(colors, index),
+          if (index != _rules.length - 1) const SizedBox(height: 7),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildRuleEditor(_DesktopPreviewColors colors, int index) {
+    final rule = _rules[index];
+    return Container(
+      padding: const EdgeInsets.all(7),
+      decoration: BoxDecoration(
+        color: colors.panelSurface.withValues(alpha: 0.7),
+        border: Border.all(color: colors.border),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Text(
+                'ルール ${index + 1}',
+                style: const TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const Spacer(),
+              _MiniIconButton(
+                colors: colors,
+                icon: Icons.keyboard_arrow_up,
+                tooltip: '上へ移動',
+                enabled: index > 0,
+                onPressed: () => _moveRule(index, -1),
+              ),
+              const SizedBox(width: 3),
+              _MiniIconButton(
+                colors: colors,
+                icon: Icons.keyboard_arrow_down,
+                tooltip: '下へ移動',
+                enabled: index < _rules.length - 1,
+                onPressed: () => _moveRule(index, 1),
+              ),
+              const SizedBox(width: 3),
+              _MiniIconButton(
+                colors: colors,
+                icon: Icons.delete_outline,
+                tooltip: 'ルールを削除',
+                destructive: true,
+                onPressed: () => _removeRule(index),
+              ),
+            ],
+          ),
+          const SizedBox(height: 5),
+          _EditorField(
+            colors: colors,
+            controller: rule.matchController,
+            label: '検索文字列',
+            lines: 2,
+            fieldKey: ValueKey<String>('format-rule-match-$index'),
+          ),
+          const SizedBox(height: 5),
+          _TemplateEditorField(
+            colors: colors,
+            controller: rule.replacementController,
+            label: '置換文字列',
+            token: '{match}',
+            fieldKey: ValueKey<String>('format-rule-replacement-$index'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _addRule() {
+    final timestamp = DateTime.now().microsecondsSinceEpoch;
+    setState(() {
+      _rules.add(
+        _ruleControllers(
+          SummaryReplacementRule(
+            id: 'rule-$timestamp-$_nextRuleNumber',
+            match: '',
+            replacement: '',
+          ),
+        ),
+      );
+    });
+  }
+
+  void _removeRule(int index) {
+    final removed = _rules.removeAt(index);
+    removed.dispose();
+    setState(() {});
+  }
+
+  void _moveRule(int index, int offset) {
+    final target = index + offset;
+    if (target < 0 || target >= _rules.length) {
+      return;
+    }
+    setState(() {
+      final rule = _rules.removeAt(index);
+      _rules.insert(target, rule);
+    });
+  }
+}
+
+class _SummaryRuleControllers {
+  const _SummaryRuleControllers({
+    required this.id,
+    required this.matchController,
+    required this.replacementController,
+  });
+
+  final String id;
+  final TextEditingController matchController;
+  final TextEditingController replacementController;
+
+  void dispose() {
+    matchController.dispose();
+    replacementController.dispose();
+  }
+}
+
+class _EditorField extends StatelessWidget {
+  const _EditorField({
+    required this.colors,
+    required this.controller,
+    required this.label,
+    this.lines = 1,
+    this.fieldKey,
+  });
+
+  final _DesktopPreviewColors colors;
+  final TextEditingController controller;
+  final String label;
+  final int lines;
+  final Key? fieldKey;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(fontSize: 10, color: colors.secondaryText),
+        ),
+        const SizedBox(height: 3),
+        SizedBox(
+          height: lines == 1 ? 28 : 44,
+          child: TextField(
+            key: fieldKey,
+            controller: controller,
+            minLines: lines,
+            maxLines: lines,
+            textInputAction: lines == 1
+                ? TextInputAction.done
+                : TextInputAction.newline,
+            inputFormatters: const [_VisibleWhitespaceFormatter()],
+            style: TextStyle(
+              color: colors.primaryText,
+              fontSize: 10,
+              height: 1.25,
+            ),
+            decoration: _editorInputDecoration(colors),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _TemplateEditorField extends StatelessWidget {
+  const _TemplateEditorField({
+    required this.colors,
+    required this.controller,
+    required this.label,
+    required this.token,
+    this.fieldKey,
+  });
+
+  final _DesktopPreviewColors colors;
+  final TextEditingController controller;
+  final String label;
+  final String token;
+  final Key? fieldKey;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text(
+              label,
+              style: TextStyle(fontSize: 10, color: colors.secondaryText),
+            ),
+            const Spacer(),
+            _TokenButton(
+              colors: colors,
+              token: token,
+              onPressed: () => _insertToken(controller, token),
+            ),
+          ],
+        ),
+        const SizedBox(height: 3),
+        SizedBox(
+          height: 44,
+          child: TextField(
+            key: fieldKey,
+            controller: controller,
+            minLines: 2,
+            maxLines: 2,
+            textInputAction: TextInputAction.newline,
+            inputFormatters: const [_VisibleWhitespaceFormatter()],
+            style: TextStyle(
+              color: colors.primaryText,
+              fontSize: 10,
+              height: 1.25,
+            ),
+            decoration: _editorInputDecoration(colors),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _TokenButton extends StatelessWidget {
+  const _TokenButton({
+    required this.colors,
+    required this.token,
+    required this.onPressed,
+  });
+
+  final _DesktopPreviewColors colors;
+  final String token;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(4),
+      onTap: onPressed,
+      child: Container(
+        height: 18,
+        padding: const EdgeInsets.symmetric(horizontal: 5),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: colors.headerControl,
+          border: Border.all(color: colors.border),
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: Text(token, style: const TextStyle(fontSize: 9)),
+      ),
+    );
+  }
+}
+
+class _MiniIconButton extends StatelessWidget {
+  const _MiniIconButton({
+    required this.colors,
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+    this.enabled = true,
+    this.destructive = false,
+  });
+
+  final _DesktopPreviewColors colors;
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onPressed;
+  final bool enabled;
+  final bool destructive;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = !enabled
+        ? colors.softText
+        : destructive
+        ? const Color(0xFFC94848)
+        : colors.utility;
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(4),
+        onTap: enabled ? onPressed : null,
+        child: SizedBox(
+          width: 20,
+          height: 20,
+          child: Icon(icon, size: 13, color: color),
+        ),
+      ),
+    );
+  }
+}
+
+InputDecoration _editorInputDecoration(_DesktopPreviewColors colors) {
+  final border = OutlineInputBorder(
+    borderRadius: BorderRadius.circular(5),
+    borderSide: BorderSide(color: colors.border),
+  );
+  return InputDecoration(
+    isDense: true,
+    filled: true,
+    fillColor: colors.memoFieldBackground,
+    contentPadding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+    border: border,
+    enabledBorder: border,
+    focusedBorder: border,
+  );
+}
+
+void _insertToken(TextEditingController controller, String token) {
+  final selection = controller.selection;
+  final start = selection.isValid ? selection.start : controller.text.length;
+  final end = selection.isValid ? selection.end : controller.text.length;
+  controller.value = TextEditingValue(
+    text: controller.text.replaceRange(start, end, token),
+    selection: TextSelection.collapsed(offset: start + token.length),
+  );
+}
+
+class _VisibleWhitespaceFormatter extends TextInputFormatter {
+  const _VisibleWhitespaceFormatter();
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    final encoded = _encodeVisibleWhitespace(newValue.text);
+    if (encoded == newValue.text) {
+      return newValue;
+    }
+    return newValue.copyWith(
+      text: encoded,
+      selection: TextSelection(
+        baseOffset: newValue.selection.baseOffset.clamp(0, encoded.length),
+        extentOffset: newValue.selection.extentOffset.clamp(0, encoded.length),
+      ),
+      composing: newValue.composing.isValid
+          ? TextRange(
+              start: newValue.composing.start.clamp(0, encoded.length),
+              end: newValue.composing.end.clamp(0, encoded.length),
+            )
+          : TextRange.empty,
+    );
+  }
+}
+
+String _encodeVisibleWhitespace(String value) {
+  return value
+      .replaceAll('\r\n', '↵')
+      .replaceAll('\r', '↵')
+      .replaceAll('\n', '↵')
+      .replaceAll('　', '□')
+      .replaceAll(' ', '␣');
+}
+
+String _decodeVisibleWhitespace(String value) {
+  return value.replaceAll('␣', ' ').replaceAll('□', '　').replaceAll('↵', '\n');
+}
+
+String _encodeVisiblePreview(String value) {
+  return value
+      .replaceAll('\r\n', '\n')
+      .replaceAll('\r', '\n')
+      .replaceAll('　', '□')
+      .replaceAll(' ', '␣')
+      .replaceAll('\n', '↵\n');
 }
 
 class _SettingsGroup extends StatelessWidget {
@@ -3927,6 +4763,194 @@ class _SmallPill extends StatelessWidget {
   }
 }
 
+class _SummaryFormatMenu extends StatelessWidget {
+  const _SummaryFormatMenu({
+    required this.colors,
+    required this.selectedFormatId,
+    required this.customFormats,
+    required this.onSelected,
+    required this.onAdd,
+  });
+
+  final _DesktopPreviewColors colors;
+  final String selectedFormatId;
+  final List<SummaryFormatDefinition> customFormats;
+  final ValueChanged<String> onSelected;
+  final VoidCallback onAdd;
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = resolveSummaryFormat(selectedFormatId, customFormats);
+    return PopupMenuButton<String>(
+      key: const ValueKey<String>('settings-summary-format-menu'),
+      tooltip: 'サマリー表示フォーマット',
+      initialValue: selected.id,
+      onSelected: (value) {
+        if (value == '_add') {
+          onAdd();
+        } else {
+          onSelected(value);
+        }
+      },
+      itemBuilder: (context) =>
+          _summaryFormatMenuItems(customFormats, includeAdd: true),
+      child: _SummaryFormatMenuSurface(colors: colors, label: selected.name),
+    );
+  }
+}
+
+class _SummaryFormatPill extends StatelessWidget {
+  const _SummaryFormatPill({
+    required this.colors,
+    required this.selectedFormatId,
+    required this.customFormats,
+    required this.onSelected,
+  });
+
+  final _DesktopPreviewColors colors;
+  final String selectedFormatId;
+  final List<SummaryFormatDefinition> customFormats;
+  final ValueChanged<String> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = resolveSummaryFormat(selectedFormatId, customFormats);
+    return PopupMenuButton<String>(
+      key: const ValueKey<String>('summary-format-menu'),
+      tooltip: 'サマリー表示フォーマット',
+      initialValue: selected.id,
+      onSelected: onSelected,
+      itemBuilder: (context) => _summaryFormatMenuItems(customFormats),
+      child: Container(
+        height: 20,
+        padding: const EdgeInsets.symmetric(horizontal: 6),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: colors.accent.withValues(alpha: 0.16),
+          border: Border.all(color: colors.accent.withValues(alpha: 0.45)),
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              selected.name,
+              style: TextStyle(
+                color: colors.accent,
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(width: 2),
+            Icon(Icons.arrow_drop_down, size: 12, color: colors.accent),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+List<PopupMenuEntry<String>> _summaryFormatMenuItems(
+  List<SummaryFormatDefinition> customFormats, {
+  bool includeAdd = false,
+}) {
+  return [
+    for (final format in builtInSummaryFormats)
+      PopupMenuItem<String>(
+        value: format.id,
+        height: 30,
+        child: Text(format.name, style: const TextStyle(fontSize: 12)),
+      ),
+    if (customFormats.isNotEmpty) const PopupMenuDivider(height: 8),
+    for (final format in customFormats)
+      PopupMenuItem<String>(
+        value: format.id,
+        height: 30,
+        child: Text(
+          format.name,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontSize: 12),
+        ),
+      ),
+    if (includeAdd) const PopupMenuDivider(height: 8),
+    if (includeAdd)
+      const PopupMenuItem<String>(
+        value: '_add',
+        height: 30,
+        child: Row(
+          children: [
+            Icon(Icons.add, size: 14),
+            SizedBox(width: 6),
+            Text('カスタムを追加', style: TextStyle(fontSize: 12)),
+          ],
+        ),
+      ),
+  ];
+}
+
+class _SummaryFormatMenuSurface extends StatelessWidget {
+  const _SummaryFormatMenuSurface({required this.colors, required this.label});
+
+  final _DesktopPreviewColors colors;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 24,
+      constraints: const BoxConstraints(minWidth: 76, maxWidth: 112),
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: colors.buttonBackground,
+        border: Border.all(color: colors.buttonBorder),
+        borderRadius: BorderRadius.circular(7),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 11),
+            ),
+          ),
+          const SizedBox(width: 3),
+          Icon(Icons.arrow_drop_down, size: 13, color: colors.secondaryText),
+        ],
+      ),
+    );
+  }
+}
+
+class _SummaryFormatEditButton extends StatelessWidget {
+  const _SummaryFormatEditButton({
+    required this.colors,
+    required this.selectedFormat,
+    required this.onAdd,
+    required this.onEdit,
+  });
+
+  final _DesktopPreviewColors colors;
+  final SummaryFormatDefinition selectedFormat;
+  final VoidCallback onAdd;
+  final ValueChanged<SummaryFormatDefinition> onEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    final isBuiltIn = selectedFormat.isBuiltIn;
+    return _MiniIconButton(
+      colors: colors,
+      icon: isBuiltIn ? Icons.add : Icons.edit_outlined,
+      tooltip: isBuiltIn ? 'カスタムを追加' : 'カスタムを編集',
+      onPressed: isBuiltIn ? onAdd : () => onEdit(selectedFormat),
+    );
+  }
+}
+
 class _SectionLabel extends StatelessWidget {
   const _SectionLabel({required this.colors, required this.label});
 
@@ -4639,13 +5663,11 @@ class _SessionSummary {
   const _SessionSummary({
     required this.text,
     required this.headerText,
-    required this.memoFormatLabel,
     required this.timeFormatLabel,
   });
 
   final String text;
   final String headerText;
-  final String memoFormatLabel;
   final String timeFormatLabel;
 }
 
@@ -4653,7 +5675,7 @@ _SessionSummary _buildSessionSummary({
   required StopwatchController stopwatch,
   required Map<String, int> lapSeconds,
   required int totalSeconds,
-  required _SummaryMemoFormat memoFormat,
+  required SummaryFormatDefinition format,
   required _SummaryTimeFormat timeFormat,
 }) {
   final lines = <String>[];
@@ -4662,27 +5684,14 @@ _SessionSummary _buildSessionSummary({
   } else {
     for (final lap in stopwatch.laps) {
       final elapsedSeconds = lapSeconds[lap.id] ?? lap.accumulatedSeconds;
-      final formattedLabel = memoFormat == _SummaryMemoFormat.bulleted
-          ? '[${lap.label}]'
-          : lap.label;
-      lines.add(
-        '$formattedLabel　(${_formatSummaryDuration(elapsedSeconds, timeFormat)})',
+      final entry = renderSummaryEntry(
+        format: format,
+        title: lap.label,
+        time: _formatSummaryDuration(elapsedSeconds, timeFormat),
+        memo: lap.memo,
       );
-      final memo = lap.memo.trim();
-      if (memo.isEmpty) {
-        continue;
-      }
-      switch (memoFormat) {
-        case _SummaryMemoFormat.plain:
-          lines.add(lap.memo);
-        case _SummaryMemoFormat.bulleted:
-          final paragraphs = lap.memo
-              .split(RegExp(r'\r?\n'))
-              .map((line) => line.trim())
-              .where((line) => line.isNotEmpty);
-          for (final paragraph in paragraphs) {
-            lines.add('   - $paragraph');
-          }
+      if (entry.isNotEmpty) {
+        lines.add(entry);
       }
     }
   }
@@ -4692,7 +5701,6 @@ _SessionSummary _buildSessionSummary({
     text: lines.join('\n'),
     headerText:
         '$sessionTitle (${_formatSummaryDuration(totalSeconds, timeFormat)})',
-    memoFormatLabel: memoFormat == _SummaryMemoFormat.bulleted ? '- メモ' : 'メモ',
     timeFormatLabel: _formatSummaryDuration(totalSeconds, timeFormat),
   );
 }

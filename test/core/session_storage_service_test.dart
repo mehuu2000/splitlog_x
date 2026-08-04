@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:splitlog_x/core/models/session_models.dart';
+import 'package:splitlog_x/core/models/summary_format.dart';
 import 'package:splitlog_x/core/services/session_storage_service.dart';
 
 void main() {
@@ -37,7 +38,23 @@ void main() {
         isMonochrome: true,
         ringHoursPerCycle: 8,
         defaultSplitMode: SplitAccumulationMode.checkbox,
-        summaryMemoFormat: 'plain',
+        selectedSummaryFormatId: 'custom-test',
+        customSummaryFormats: [
+          SummaryFormatDefinition(
+            id: 'custom-test',
+            name: '日報',
+            titleTemplate: '[{title}]',
+            timeTemplate: '{time}',
+            memoTemplate: '- {memo}',
+            rules: [
+              SummaryReplacementRule(
+                id: 'rule-test',
+                match: 'codex',
+                replacement: 'AI',
+              ),
+            ],
+          ),
+        ],
         summaryTimeFormat: 'hourMinute',
         shortcutsEnabled: false,
       ),
@@ -78,6 +95,12 @@ void main() {
     expect(restored!.settings.isLocked, isTrue);
     expect(restored.settings.ringHoursPerCycle, 8);
     expect(restored.settings.shortcutsEnabled, isFalse);
+    expect(restored.settings.selectedSummaryFormatId, 'custom-test');
+    expect(restored.settings.customSummaryFormats.single.name, '日報');
+    expect(
+      restored.settings.customSummaryFormats.single.rules.single.replacement,
+      'AI',
+    );
     expect(restored.sessions.single.session?.title, '2026/6/30');
     expect(restored.sessions.single.laps.single.memo, 'memo');
   });
@@ -88,6 +111,20 @@ void main() {
 
     expect(defaults.ringHoursPerCycle, 3);
     expect(restored.ringHoursPerCycle, 3);
+    expect(defaults.selectedSummaryFormatId, standardSummaryFormatId);
+    expect(restored.selectedSummaryFormatId, standardSummaryFormatId);
+  });
+
+  test('migrates legacy summary memo formats', () {
+    final bulleted = SplitLogSettingsSnapshot.fromJson(const {
+      'summaryMemoFormat': 'bulleted',
+    });
+    final plain = SplitLogSettingsSnapshot.fromJson(const {
+      'summaryMemoFormat': 'plain',
+    });
+
+    expect(bulleted.selectedSummaryFormatId, templateSummaryFormatId);
+    expect(plain.selectedSummaryFormatId, standardSummaryFormatId);
   });
 
   test('imports legacy SplitLog sessions.json format', () async {
