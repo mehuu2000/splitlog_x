@@ -91,6 +91,38 @@ void main() {
     expect(find.text('サマリーをコピーしました'), findsNothing);
   });
 
+  testWidgets('bulleted summary wraps split names in brackets', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(const SplitLogApp());
+
+    await tester.tap(find.text('開始'));
+    await tester.pump();
+    await tester.tap(find.byTooltip('Splitメモ'));
+    await tester.pump();
+
+    final memoFields = find.byType(TextField);
+    await tester.enterText(memoFields.at(0), '実装');
+    await tester.enterText(memoFields.at(1), '確認メモ');
+    await tester.tap(find.widgetWithText(FilledButton, '閉じる'));
+    await tester.pump();
+
+    await tester.tap(find.byTooltip('サマリー'));
+    await tester.pump();
+
+    final summaryEditor = find.byType(TextField);
+    var summary = tester.widget<TextField>(summaryEditor).controller!.text;
+    expect(summary, contains('[実装]'));
+    expect(summary, contains('- 確認メモ'));
+
+    await tester.tap(find.text('- メモ'));
+    await tester.pump();
+
+    summary = tester.widget<TextField>(summaryEditor).controller!.text;
+    expect(summary, contains('実装'));
+    expect(summary, isNot(contains('[実装]')));
+  });
+
   testWidgets('memo remains open when tapping outside', (
     WidgetTester tester,
   ) async {

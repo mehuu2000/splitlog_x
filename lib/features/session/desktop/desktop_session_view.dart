@@ -4662,8 +4662,11 @@ _SessionSummary _buildSessionSummary({
   } else {
     for (final lap in stopwatch.laps) {
       final elapsedSeconds = lapSeconds[lap.id] ?? lap.accumulatedSeconds;
+      final formattedLabel = memoFormat == _SummaryMemoFormat.bulleted
+          ? '[${lap.label}]'
+          : lap.label;
       lines.add(
-        '${lap.label}　(${_formatSummaryDuration(elapsedSeconds, timeFormat)})',
+        '$formattedLabel　(${_formatSummaryDuration(elapsedSeconds, timeFormat)})',
       );
       final memo = lap.memo.trim();
       if (memo.isEmpty) {
