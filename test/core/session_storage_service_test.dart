@@ -91,6 +91,7 @@ void main() {
     await service.save(snapshot);
     final restored = await service.load();
 
+    expect(await File('${storageFile.path}.tmp').exists(), isFalse);
     expect(restored, isNotNull);
     expect(restored!.settings.isLocked, isTrue);
     expect(restored.settings.ringHoursPerCycle, 8);
@@ -103,6 +104,48 @@ void main() {
     );
     expect(restored.sessions.single.session?.title, '2026/6/30');
     expect(restored.sessions.single.laps.single.memo, 'memo');
+  });
+
+  test('serializes pending storage reads and deletes', () async {
+    final service = SessionStorageService(
+      storageFile: storageFile,
+      legacyStorageFile: legacyFile,
+    );
+    final snapshot = SplitLogStorageSnapshot(
+      savedAt: DateTime.utc(2026, 8, 6, 12),
+      sessions: const [],
+      selectedSessionIndex: 0,
+      settings: const SplitLogSettingsSnapshot(),
+    );
+
+    final pendingSave = service.save(snapshot);
+    final restored = await service.load();
+
+    expect(restored?.savedAt, snapshot.savedAt);
+    await pendingSave;
+
+    final secondSave = service.save(snapshot);
+    await service.flush();
+    await service.delete();
+    await secondSave;
+
+    expect(await storageFile.exists(), isFalse);
+  });
+
+  test('does not treat unreadable storage as an empty snapshot', () async {
+    final service = SessionStorageService(
+      storageFile: storageFile,
+      legacyStorageFile: legacyFile,
+    );
+    const malformedContent = '{"sessions": [';
+    await storageFile.writeAsString(malformedContent);
+
+    await expectLater(
+      service.load(),
+      throwsA(isA<SessionStorageReadException>()),
+    );
+
+    expect(await storageFile.readAsString(), malformedContent);
   });
 
   test('uses the legacy default three-hour ring cycle', () {

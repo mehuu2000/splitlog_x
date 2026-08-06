@@ -121,14 +121,14 @@ const standardSummaryFormat = SummaryFormatDefinition(
 const templateSummaryFormat = SummaryFormatDefinition(
   id: templateSummaryFormatId,
   name: 'テンプ',
-  titleTemplate: '[{title}]',
+  titleTemplate: '[ {title} ]',
   timeTemplate: '({time})',
-  memoTemplate: '   - {memo}',
+  memoTemplate: '   ・{memo}',
   rules: [
     SummaryReplacementRule(
       id: 'template-newline',
       match: r'\n',
-      replacement: '        - ',
+      replacement: '\n        - ',
     ),
   ],
 );

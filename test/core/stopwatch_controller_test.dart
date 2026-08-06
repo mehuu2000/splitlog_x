@@ -116,6 +116,29 @@ void main() {
     });
   });
 
+  test('restored paused duration cannot make elapsed time negative', () {
+    final stopwatch = StopwatchController(
+      initialSnapshot: StopwatchSnapshot(
+        session: WorkSession(
+          id: 'session-test',
+          title: '2026/6/30',
+          startedAt: at(0),
+        ),
+        laps: const [],
+        selectedLapId: null,
+        activeLapIds: const {},
+        splitAccumulationMode: SplitAccumulationMode.radio,
+        state: SessionState.stopped,
+        pauseStartedAt: at(5),
+        lastDistributedWholeSeconds: 0,
+        distributionCursor: 0,
+        totalPausedSeconds: 10,
+      ),
+    );
+
+    expect(stopwatch.elapsedSessionSeconds(at: at(5)), 0);
+  });
+
   test('lap label updates remove embedded line breaks', () {
     final stopwatch = controller();
     stopwatch.startSession(
@@ -203,5 +226,97 @@ void main() {
       restored.laps[0].id: 4,
       restored.laps[1].id: 1,
     });
+  });
+
+  test('repairs duplicate lap IDs without changing lap data', () {
+    final firstLap = WorkLap(
+      id: 'id-1',
+      sessionId: 'session-test',
+      index: 1,
+      startedAt: at(0),
+      endedAt: at(5),
+      accumulatedSeconds: 5,
+      label: '元の作業',
+      memo: '失ってはいけないメモ\n2行目',
+    );
+    final latestLap = WorkLap(
+      id: 'id-1',
+      sessionId: 'session-test',
+      index: 4,
+      startedAt: at(5),
+      accumulatedSeconds: 7,
+      label: '作業4',
+      memo: '新しいSplitのメモ',
+    );
+    final restored = StopwatchController(
+      idGenerator: () => 'repaired-id',
+      initialSnapshot: StopwatchSnapshot(
+        session: WorkSession(
+          id: 'session-test',
+          title: '2026/6/30',
+          startedAt: at(0),
+        ),
+        laps: [firstLap, latestLap],
+        selectedLapId: 'id-1',
+        activeLapIds: const {'id-1'},
+        splitAccumulationMode: SplitAccumulationMode.radio,
+        state: SessionState.stopped,
+        pauseStartedAt: at(8),
+        lastDistributedWholeSeconds: 7,
+        distributionCursor: 0,
+        totalPausedSeconds: 2,
+      ),
+    );
+
+    expect(restored.repairedIdentifiers, isTrue);
+    expect(restored.laps, hasLength(2));
+    expect(restored.laps.map((lap) => lap.id).toSet(), hasLength(2));
+    expect(restored.laps.first.id, firstLap.id);
+    expect(restored.laps.last.id, 'repaired-id');
+
+    final originalFirstData = firstLap.toJson()..remove('id');
+    final restoredFirstData = restored.laps.first.toJson()..remove('id');
+    final originalLatestData = latestLap.toJson()..remove('id');
+    final restoredLatestData = restored.laps.last.toJson()..remove('id');
+    expect(restoredFirstData, originalFirstData);
+    expect(restoredLatestData, originalLatestData);
+    expect(restored.selectedLapId, restored.laps.last.id);
+    expect(restored.activeLapIds, {restored.laps.last.id});
+  });
+
+  test('new lap IDs remain unique when a generator value already exists', () {
+    final restored = StopwatchController(
+      idGenerator: () => 'existing-id',
+      initialSnapshot: StopwatchSnapshot(
+        session: WorkSession(
+          id: 'session-test',
+          title: '2026/6/30',
+          startedAt: at(0),
+        ),
+        laps: [
+          WorkLap(
+            id: 'existing-id',
+            sessionId: 'session-test',
+            index: 1,
+            startedAt: at(0),
+            accumulatedSeconds: 0,
+            label: '作業1',
+          ),
+        ],
+        selectedLapId: 'existing-id',
+        activeLapIds: const {'existing-id'},
+        splitAccumulationMode: SplitAccumulationMode.radio,
+        state: SessionState.running,
+        pauseStartedAt: null,
+        lastDistributedWholeSeconds: 0,
+        distributionCursor: 0,
+        totalPausedSeconds: 0,
+      ),
+    );
+
+    restored.finishLap(at: at(5));
+
+    expect(restored.laps.map((lap) => lap.id).toSet(), hasLength(2));
+    expect(restored.laps.last.id, 'existing-id-repaired-1');
   });
 }

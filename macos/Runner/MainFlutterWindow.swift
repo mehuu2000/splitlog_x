@@ -46,7 +46,11 @@ class MainFlutterWindow: NSWindow {
     channel.setMethodCallHandler { call, result in
       switch call.method {
       case "quitApp":
-        NSApp.terminate(nil)
+        if let appDelegate = NSApp.delegate as? AppDelegate {
+          appDelegate.terminateAfterFlutterPreparation()
+        } else {
+          NSApp.terminate(nil)
+        }
         result(nil)
       case "setShortcutsEnabled":
         let arguments = call.arguments as? [String: Any]
@@ -234,6 +238,16 @@ macOS version:
 
     if let url = components.url {
       NSWorkspace.shared.open(url)
+    }
+  }
+
+  func prepareToQuit(completion: @escaping (Bool) -> Void) {
+    guard let appChannel else {
+      completion(true)
+      return
+    }
+    appChannel.invokeMethod("prepareToQuit", arguments: nil) { result in
+      completion(result as? Bool ?? false)
     }
   }
 }

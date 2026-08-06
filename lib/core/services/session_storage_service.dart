@@ -4,6 +4,12 @@ import 'dart:io';
 import '../models/session_models.dart';
 import '../models/summary_format.dart';
 
+class SessionStorageReadException implements Exception {
+  const SessionStorageReadException([this.cause]);
+
+  final Object? cause;
+}
+
 class SplitLogSettingsSnapshot {
   const SplitLogSettingsSnapshot({
     this.isLocked = false,
@@ -173,29 +179,65 @@ class SessionStorageService {
 
   final File _storageFile;
   final List<File> _legacyStorageFiles;
+  Future<void> _pendingFileOperation = Future<void>.value();
 
   Future<SplitLogStorageSnapshot?> load() async {
+    await _pendingFileOperation;
     if (!await _storageFile.exists()) {
       return null;
     }
 
     final json = await _readJsonObject(_storageFile);
     if (json == null) {
-      return null;
+      throw const SessionStorageReadException();
     }
-    return SplitLogStorageSnapshot.fromJson(json);
+    try {
+      return SplitLogStorageSnapshot.fromJson(json);
+    } on Object catch (error) {
+      throw SessionStorageReadException(error);
+    }
   }
 
-  Future<void> save(SplitLogStorageSnapshot snapshot) async {
-    await _storageFile.parent.create(recursive: true);
-    const encoder = JsonEncoder.withIndent('  ');
-    await _storageFile.writeAsString('${encoder.convert(snapshot.toJson())}\n');
+  Future<void> save(SplitLogStorageSnapshot snapshot) {
+    return _enqueueFileOperation(() async {
+      await _storageFile.parent.create(recursive: true);
+      const encoder = JsonEncoder.withIndent('  ');
+      final temporaryFile = File('${_storageFile.path}.tmp');
+      await temporaryFile.writeAsString(
+        '${encoder.convert(snapshot.toJson())}\n',
+        flush: true,
+      );
+      try {
+        await temporaryFile.rename(_storageFile.path);
+      } on FileSystemException {
+        // Windows cannot always replace an existing file with rename().
+        await temporaryFile.copy(_storageFile.path);
+        await temporaryFile.delete();
+      }
+    });
   }
 
-  Future<void> delete() async {
-    if (await _storageFile.exists()) {
-      await _storageFile.delete();
-    }
+  Future<void> delete() {
+    return _enqueueFileOperation(() async {
+      if (await _storageFile.exists()) {
+        await _storageFile.delete();
+      }
+      final temporaryFile = File('${_storageFile.path}.tmp');
+      if (await temporaryFile.exists()) {
+        await temporaryFile.delete();
+      }
+    });
+  }
+
+  Future<void> flush() => _pendingFileOperation;
+
+  Future<void> _enqueueFileOperation(Future<void> Function() operation) {
+    final scheduled = _pendingFileOperation.then((_) => operation());
+    _pendingFileOperation = scheduled.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    return scheduled;
   }
 
   Future<bool> legacySnapshotExists() async {

@@ -71,9 +71,13 @@ _SummaryTimeFormat _summaryTimeFormatFromName(String value) {
 }
 
 const _appPlatformChannel = MethodChannel('splitlog_x/app');
+const _desktopScrollbarGutter = 10.0;
+const _compactScrollbarThickness = 6.0;
 
 class DesktopSessionView extends StatefulWidget {
-  const DesktopSessionView({super.key});
+  const DesktopSessionView({super.key, this.storage});
+
+  final SessionStorageService? storage;
 
   @override
   State<DesktopSessionView> createState() => _DesktopSessionViewState();
@@ -83,7 +87,9 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
   _PreviewOverlay _overlay = _PreviewOverlay.none;
   bool _isLocked = false;
   bool _isMonochrome = false;
-  final SessionStorageService _storage = SessionStorageService();
+  bool _storageReady = false;
+  bool _storageWritable = true;
+  late final SessionStorageService _storage;
   late final List<StopwatchController> _stopwatches;
   int _selectedSessionIndex = 0;
   late DateTime _clock;
@@ -116,6 +122,7 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
   @override
   void initState() {
     super.initState();
+    _storage = widget.storage ?? SessionStorageService();
     _clock = DateTime.now();
     _stopwatches = [
       StopwatchController(
@@ -186,31 +193,51 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
   }
 
   Future<void> _loadPersistedState() async {
-    final snapshot = await _storage.load();
-    if (!mounted) {
-      return;
-    }
-    if (snapshot != null && snapshot.sessions.isNotEmpty) {
-      if (_isPreviewSeedSnapshot(snapshot)) {
-        await _storage.delete();
-        if (!mounted) {
-          return;
-        }
-      } else {
-        setState(() {
-          _restoreStorageSnapshot(snapshot);
-        });
+    try {
+      final snapshot = await _storage.load();
+      if (!mounted) {
         return;
       }
-    }
+      if (snapshot != null && snapshot.sessions.isNotEmpty) {
+        if (_isPreviewSeedSnapshot(snapshot)) {
+          await _storage.delete();
+          if (!mounted) {
+            return;
+          }
+        } else {
+          var repairedIdentifiers = false;
+          setState(() {
+            repairedIdentifiers = _restoreStorageSnapshot(snapshot);
+          });
+          if (repairedIdentifiers) {
+            await _storage.save(_storageSnapshot());
+          }
+          return;
+        }
+      }
 
-    final hasLegacySnapshot = await _storage.legacySnapshotExists();
-    if (!mounted || !hasLegacySnapshot) {
-      return;
+      final hasLegacySnapshot = await _storage.legacySnapshotExists();
+      if (!mounted || !hasLegacySnapshot) {
+        return;
+      }
+      setState(() {
+        _overlay = _PreviewOverlay.legacyImport;
+      });
+    } on SessionStorageReadException {
+      _storageWritable = false;
+      if (mounted) {
+        _showToast(
+          '保存データを読み込めないため、sessions.jsonへの保存を停止しました',
+          style: _ToastStyle.error,
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _storageReady = true;
+        });
+      }
     }
-    setState(() {
-      _overlay = _PreviewOverlay.legacyImport;
-    });
   }
 
   bool _isPreviewSeedSnapshot(SplitLogStorageSnapshot snapshot) {
@@ -223,13 +250,13 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
         sessionIds[2] == 'session-2026/6/24';
   }
 
-  void _restoreStorageSnapshot(SplitLogStorageSnapshot snapshot) {
+  bool _restoreStorageSnapshot(SplitLogStorageSnapshot snapshot) {
     final restored = [
       for (final session in snapshot.sessions)
         StopwatchController(initialSnapshot: session),
     ];
     if (restored.isEmpty) {
-      return;
+      return false;
     }
 
     _stopwatches
@@ -256,6 +283,7 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
     unawaited(_setNativeShortcutsEnabled(_shortcutsEnabled));
     unawaited(_setNativePopoverLocked(_isLocked));
     _overlay = _PreviewOverlay.none;
+    return restored.any((stopwatch) => stopwatch.repairedIdentifiers);
   }
 
   SplitLogStorageSnapshot _storageSnapshot() {
@@ -277,7 +305,23 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
   }
 
   void _persistState() {
-    unawaited(_storage.save(_storageSnapshot()));
+    if (!_storageReady || !_storageWritable) {
+      return;
+    }
+    final snapshot = _storageSnapshot();
+    unawaited(_saveSnapshotWithFeedback(snapshot));
+  }
+
+  Future<void> _saveSnapshotWithFeedback(
+    SplitLogStorageSnapshot snapshot,
+  ) async {
+    try {
+      await _storage.save(snapshot);
+    } on Object {
+      if (mounted) {
+        _showToast('データの保存に失敗しました', style: _ToastStyle.error);
+      }
+    }
   }
 
   void _refresh({bool persist = false, bool scrollToSelectedLap = false}) {
@@ -614,6 +658,7 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
   }
 
   void _initializeAllData() {
+    _storageWritable = true;
     _deleteAllSessionData(showFeedback: false);
     _resetSettings(showFeedback: false);
     _showToast('全データを初期化しました');
@@ -772,56 +817,96 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
   }
 
   Future<void> _importLegacyData() async {
-    final snapshot = await _storage.importLegacySnapshot();
-    if (!mounted) {
-      return;
-    }
-    if (snapshot == null || snapshot.sessions.isEmpty) {
-      setState(() {
-        _overlay = _PreviewOverlay.legacyImportMissing;
-      });
-      return;
-    }
+    try {
+      final snapshot = await _storage.importLegacySnapshot();
+      if (!mounted) {
+        return;
+      }
+      if (snapshot == null || snapshot.sessions.isEmpty) {
+        setState(() {
+          _overlay = _PreviewOverlay.legacyImportMissing;
+        });
+        return;
+      }
 
-    setState(() {
-      _restoreStorageSnapshot(snapshot);
-    });
-    _persistState();
-    _showToast('旧データをインポートしました');
+      setState(() {
+        _storageWritable = true;
+        _restoreStorageSnapshot(snapshot);
+      });
+      _persistState();
+      _showToast('旧データをインポートしました');
+    } on Object {
+      if (mounted) {
+        _showToast('旧データの読み込みに失敗しました', style: _ToastStyle.error);
+      }
+    }
   }
 
   Future<void> _importLegacyDataFromFile() async {
-    final content = await _appPlatformChannel.invokeMethod<String>(
-      'chooseLegacyFile',
-    );
-    if (!mounted || content == null) {
-      return;
-    }
+    try {
+      final content = await _appPlatformChannel.invokeMethod<String>(
+        'chooseLegacyFile',
+      );
+      if (!mounted || content == null) {
+        return;
+      }
 
-    final snapshot = await _storage.importLegacySnapshotFromContent(content);
-    if (!mounted) {
-      return;
-    }
-    if (snapshot == null || snapshot.sessions.isEmpty) {
+      final snapshot = await _storage.importLegacySnapshotFromContent(content);
+      if (!mounted) {
+        return;
+      }
+      if (snapshot == null || snapshot.sessions.isEmpty) {
+        setState(() {
+          _overlay = _PreviewOverlay.legacyImportMissing;
+        });
+        return;
+      }
+
       setState(() {
-        _overlay = _PreviewOverlay.legacyImportMissing;
+        _storageWritable = true;
+        _restoreStorageSnapshot(snapshot);
       });
-      return;
+      _persistState();
+      _showToast('旧データをインポートしました');
+    } on Object {
+      if (mounted) {
+        _showToast('sessions.jsonの読み込みに失敗しました', style: _ToastStyle.error);
+      }
     }
-
-    setState(() {
-      _restoreStorageSnapshot(snapshot);
-    });
-    _persistState();
-    _showToast('旧データをインポートしました');
   }
 
   Future<void> _openContactMail() async {
-    await _appPlatformChannel.invokeMethod<void>('openContact');
+    try {
+      await _appPlatformChannel.invokeMethod<void>('openContact');
+    } on Object {
+      if (mounted) {
+        _showToast('メールアプリを開けませんでした', style: _ToastStyle.error);
+      }
+    }
   }
 
   Future<void> _quitApp() async {
+    if (!await _prepareToQuit()) {
+      return;
+    }
     await _appPlatformChannel.invokeMethod<void>('quitApp');
+  }
+
+  Future<bool> _prepareToQuit() async {
+    try {
+      if (_storageReady && _storageWritable) {
+        _commitActiveEdits();
+        _commitActiveMemoEditIfNeeded();
+        await _storage.save(_storageSnapshot());
+      }
+      await _storage.flush();
+      return true;
+    } on Object {
+      if (mounted) {
+        _showToast('データを保存できなかったため終了を中止しました', style: _ToastStyle.error);
+      }
+      return false;
+    }
   }
 
   Future<void> _setNativeShortcutsEnabled(bool enabled) async {
@@ -845,6 +930,9 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
   }
 
   Future<Object?> _handlePlatformCall(MethodCall call) async {
+    if (call.method == 'prepareToQuit') {
+      return _prepareToQuit();
+    }
     if (call.method != 'shortcutAction') {
       return null;
     }
@@ -857,7 +945,7 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
   }
 
   void _handleShortcutAction(Map<Object?, Object?> arguments) {
-    if (!_shortcutsEnabled || !mounted) {
+    if (!_storageReady || !_shortcutsEnabled || !mounted) {
       return;
     }
     final action = arguments['action'] as String?;
@@ -935,155 +1023,159 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
         shadowColor: Colors.black.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(12),
         clipBehavior: Clip.antiAlias,
-        child: Stack(
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _HeaderBar(
-                    colors: colors,
-                    sessions: _sessionTitles,
-                    selectedSessionIndex: _selectedSessionIndex,
-                    isLocked: _isLocked,
-                    onHelp: () => _show(_PreviewOverlay.help),
-                    onToggleLock: _toggleLock,
-                    onSessionList: () => _show(_PreviewOverlay.sessionList),
-                    onSelectSession: _selectSession,
-                    onAddSession: _addSession,
-                    onSettings: () => _show(_PreviewOverlay.settings),
-                  ),
-                  const SizedBox(height: 4),
-                  Divider(height: 1, color: colors.border),
-                  const SizedBox(height: 8),
-                  _SessionStatusRow(
-                    colors: colors,
-                    sessionTitle:
-                        _stopwatch.session?.title ?? _dateTitle(_clock),
-                    isEditingSessionTitle: _isEditingSessionTitle,
-                    sessionTitleController: _sessionTitleController,
-                    sessionTitleFocus: _sessionTitleFocus,
-                    splitMode: _stopwatch.splitAccumulationMode,
-                    totalElapsed: _formatDuration(_totalSeconds),
-                    onBeginSessionTitleEdit: _beginSessionTitleEdit,
-                    onCommitSessionTitleEdit: _commitSessionTitleEdit,
-                    onToggleSplitMode: _setSplitMode,
-                    onSummary: _showSummary,
-                  ),
-                  const SizedBox(height: 8),
-                  Expanded(
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _TimelineCard(
-                          colors: colors,
-                          laps: _stopwatch.laps,
-                          lapSeconds: lapSeconds,
-                          totalSeconds: _totalSeconds,
-                          ringHoursPerCycle: _ringHoursPerCycle,
-                          onCycleTap: () => _show(_PreviewOverlay.settings),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: _LapList(
+        child: IgnorePointer(
+          ignoring: !_storageReady,
+          child: Stack(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _HeaderBar(
+                      colors: colors,
+                      sessions: _sessionTitles,
+                      selectedSessionIndex: _selectedSessionIndex,
+                      isLocked: _isLocked,
+                      onHelp: () => _show(_PreviewOverlay.help),
+                      onToggleLock: _toggleLock,
+                      onSessionList: () => _show(_PreviewOverlay.sessionList),
+                      onSelectSession: _selectSession,
+                      onAddSession: _addSession,
+                      onSettings: () => _show(_PreviewOverlay.settings),
+                    ),
+                    const SizedBox(height: 4),
+                    Divider(height: 1, color: colors.border),
+                    const SizedBox(height: 8),
+                    _SessionStatusRow(
+                      colors: colors,
+                      sessionTitle:
+                          _stopwatch.session?.title ?? _dateTitle(_clock),
+                      isEditingSessionTitle: _isEditingSessionTitle,
+                      sessionTitleController: _sessionTitleController,
+                      sessionTitleFocus: _sessionTitleFocus,
+                      splitMode: _stopwatch.splitAccumulationMode,
+                      totalElapsed: _formatDuration(_totalSeconds),
+                      onBeginSessionTitleEdit: _beginSessionTitleEdit,
+                      onCommitSessionTitleEdit: _commitSessionTitleEdit,
+                      onToggleSplitMode: _setSplitMode,
+                      onSummary: _showSummary,
+                    ),
+                    const SizedBox(height: 8),
+                    Expanded(
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _TimelineCard(
                             colors: colors,
                             laps: _stopwatch.laps,
                             lapSeconds: lapSeconds,
-                            splitMode: _stopwatch.splitAccumulationMode,
-                            selectedLapId: _stopwatch.selectedLapId,
-                            activeLapIds: _stopwatch.activeLapIds,
-                            editingLapId: _editingLapId,
-                            editingLabelController: _lapLabelController,
-                            editingLabelFocus: _lapLabelFocus,
-                            editingLabelScrollController:
-                                _lapLabelScrollController,
-                            stateLabel: _sessionStateLabel,
-                            scrollToSelectionToken: _lapListScrollToken,
-                            onMemo: _beginLapMemoEdit,
-                            onBeginLapLabelEdit: _beginLapLabelEdit,
-                            onCommitLapLabelEdit: _commitLapLabelEdit,
-                            onLeadingControl: _activateLapFromLeadingControl,
+                            totalSeconds: _totalSeconds,
+                            ringHoursPerCycle: _ringHoursPerCycle,
+                            onCycleTap: () => _show(_PreviewOverlay.settings),
                           ),
-                        ),
-                      ],
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: _LapList(
+                              colors: colors,
+                              laps: _stopwatch.laps,
+                              lapSeconds: lapSeconds,
+                              splitMode: _stopwatch.splitAccumulationMode,
+                              selectedLapId: _stopwatch.selectedLapId,
+                              activeLapIds: _stopwatch.activeLapIds,
+                              editingLapId: _editingLapId,
+                              editingLabelController: _lapLabelController,
+                              editingLabelFocus: _lapLabelFocus,
+                              editingLabelScrollController:
+                                  _lapLabelScrollController,
+                              stateLabel: _sessionStateLabel,
+                              scrollToSelectionToken: _lapListScrollToken,
+                              onMemo: _beginLapMemoEdit,
+                              onBeginLapLabelEdit: _beginLapLabelEdit,
+                              onCommitLapLabelEdit: _commitLapLabelEdit,
+                              onLeadingControl: _activateLapFromLeadingControl,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  _BottomActionRow(
-                    colors: colors,
-                    primaryLabel: _primaryActionLabel,
-                    splitEnabled: _stopwatch.state == SessionState.running,
-                    onPrimary: _togglePrimaryAction,
-                    onSplit: _finishLap,
-                    onReset: () => _show(_PreviewOverlay.resetConfirmation),
-                    onDelete: () => _show(_PreviewOverlay.deleteConfirmation),
-                  ),
-                ],
+                    const SizedBox(height: 8),
+                    _BottomActionRow(
+                      colors: colors,
+                      primaryLabel: _primaryActionLabel,
+                      splitEnabled: _stopwatch.state == SessionState.running,
+                      onPrimary: _togglePrimaryAction,
+                      onSplit: _finishLap,
+                      onReset: () => _show(_PreviewOverlay.resetConfirmation),
+                      onDelete: () => _show(_PreviewOverlay.deleteConfirmation),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            _OverlayLayer(
-              overlay: _overlay,
-              colors: colors,
-              sessions: _sessionTitles,
-              selectedSessionIndex: _selectedSessionIndex,
-              isMonochrome: _isMonochrome,
-              ringHoursPerCycle: _ringHoursPerCycle,
-              defaultSplitMode: _defaultSplitMode,
-              selectedSummaryFormatId: _selectedSummaryFormatId,
-              customSummaryFormats: _customSummaryFormats,
-              summaryTimeFormat: _summaryTimeFormat,
-              summary: summary,
-              summaryTimePreviewLabel: summary.timeFormatLabel,
-              shortcutsEnabled: _shortcutsEnabled,
-              memoLabelController: _memoLabelController,
-              memoTextController: _memoTextController,
-              summaryTextController: _summaryTextController,
-              memoElapsedText: _memoElapsedText,
-              onClose: _hideOverlay,
-              onCloseMemo: _closeMemo,
-              onOpenGuide: () => _show(_PreviewOverlay.guide),
-              onOpenContact: () => _show(_PreviewOverlay.contact),
-              onOpenContactMail: () => unawaited(_openContactMail()),
-              onReset: _resetSession,
-              onDelete: _deleteSession,
-              onSelectSession: _selectSession,
-              onSetTheme: _setTheme,
-              onSetRingHoursPerCycle: _setRingHoursPerCycle,
-              onSetDefaultSplitMode: _setDefaultSplitMode,
-              onSetSummaryFormat: _setSummaryFormat,
-              onSaveCustomSummaryFormat: _saveCustomSummaryFormat,
-              onDeleteCustomSummaryFormat: _deleteCustomSummaryFormat,
-              onSetSummaryTimeFormat: _setSummaryTimeFormat,
-              onSetSummaryFormatFromSummary: _setSummaryFormatFromSummary,
-              onToggleSummaryTimeFormat: _toggleSummaryTimeFormat,
-              onCopySummary: () => unawaited(_copySummary()),
-              onSetShortcutsEnabled: _setShortcutsEnabled,
-              onRequestLegacyImport: () => _show(_PreviewOverlay.legacyImport),
-              onImportLegacyData: () => unawaited(_importLegacyData()),
-              onImportLegacyDataFromFile: () =>
-                  unawaited(_importLegacyDataFromFile()),
-              onQuitApp: () => unawaited(_quitApp()),
-              onDeleteSessionData: () => _deleteAllSessionData(),
-              onDeleteLapData: () => _deleteAllLapData(),
-              onResetSettings: () => _resetSettings(),
-              onInitializeAllData: _initializeAllData,
-            ),
-            if (_toastMessage != null)
-              Positioned(
-                top: 8,
-                left: 0,
-                right: 0,
-                child: IgnorePointer(
-                  child: Center(
-                    child: _ToastBanner(
-                      message: _toastMessage!,
-                      style: _toastStyle,
+              _OverlayLayer(
+                overlay: _overlay,
+                colors: colors,
+                sessions: _sessionTitles,
+                selectedSessionIndex: _selectedSessionIndex,
+                isMonochrome: _isMonochrome,
+                ringHoursPerCycle: _ringHoursPerCycle,
+                defaultSplitMode: _defaultSplitMode,
+                selectedSummaryFormatId: _selectedSummaryFormatId,
+                customSummaryFormats: _customSummaryFormats,
+                summaryTimeFormat: _summaryTimeFormat,
+                summary: summary,
+                summaryTimePreviewLabel: summary.timeFormatLabel,
+                shortcutsEnabled: _shortcutsEnabled,
+                memoLabelController: _memoLabelController,
+                memoTextController: _memoTextController,
+                summaryTextController: _summaryTextController,
+                memoElapsedText: _memoElapsedText,
+                onClose: _hideOverlay,
+                onCloseMemo: _closeMemo,
+                onOpenGuide: () => _show(_PreviewOverlay.guide),
+                onOpenContact: () => _show(_PreviewOverlay.contact),
+                onOpenContactMail: () => unawaited(_openContactMail()),
+                onReset: _resetSession,
+                onDelete: _deleteSession,
+                onSelectSession: _selectSession,
+                onSetTheme: _setTheme,
+                onSetRingHoursPerCycle: _setRingHoursPerCycle,
+                onSetDefaultSplitMode: _setDefaultSplitMode,
+                onSetSummaryFormat: _setSummaryFormat,
+                onSaveCustomSummaryFormat: _saveCustomSummaryFormat,
+                onDeleteCustomSummaryFormat: _deleteCustomSummaryFormat,
+                onSetSummaryTimeFormat: _setSummaryTimeFormat,
+                onSetSummaryFormatFromSummary: _setSummaryFormatFromSummary,
+                onToggleSummaryTimeFormat: _toggleSummaryTimeFormat,
+                onCopySummary: () => unawaited(_copySummary()),
+                onSetShortcutsEnabled: _setShortcutsEnabled,
+                onRequestLegacyImport: () =>
+                    _show(_PreviewOverlay.legacyImport),
+                onImportLegacyData: () => unawaited(_importLegacyData()),
+                onImportLegacyDataFromFile: () =>
+                    unawaited(_importLegacyDataFromFile()),
+                onQuitApp: () => unawaited(_quitApp()),
+                onDeleteSessionData: () => _deleteAllSessionData(),
+                onDeleteLapData: () => _deleteAllLapData(),
+                onResetSettings: () => _resetSettings(),
+                onInitializeAllData: _initializeAllData,
+              ),
+              if (_toastMessage != null)
+                Positioned(
+                  top: 8,
+                  left: 0,
+                  right: 0,
+                  child: IgnorePointer(
+                    child: Center(
+                      child: _ToastBanner(
+                        message: _toastMessage!,
+                        style: _toastStyle,
+                      ),
                     ),
                   ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -2813,248 +2905,251 @@ class _SettingsOverlay extends StatefulWidget {
           ),
           const SizedBox(height: 14),
           Expanded(
-            child: ListView(
-              padding: EdgeInsets.zero,
-              children: [
-                _SettingsGroup(
-                  colors: colors,
-                  label: 'テーマカラー',
-                  children: [
-                    _SettingsRow(
-                      colors: colors,
-                      title: 'テーマカラー',
-                      trailing: SizedBox(
-                        width: 140,
-                        child: _ChoiceBar(
-                          colors: colors,
-                          selectedIndex: isMonochrome ? 1 : 0,
-                          labels: const ['カラー', 'モノクロ'],
-                          onTap: (index) => onSetTheme(index == 1),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                _SettingsGroup(
-                  colors: colors,
-                  label: '表示',
-                  children: [
-                    _SettingsRow(
-                      colors: colors,
-                      title: 'リング周期（1周）',
-                      trailing: _InlineStepperValue(
-                        value: '$ringHoursPerCycle時間',
-                        onDecrease: () =>
-                            onSetRingHoursPerCycle(ringHoursPerCycle - 1),
-                        onIncrease: () =>
-                            onSetRingHoursPerCycle(ringHoursPerCycle + 1),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    _SectionLabel(
-                      colors: colors,
-                      label: '新規セッションのデフォルトSplit配分モード',
-                    ),
-                    const SizedBox(height: 6),
-                    _SettingsRow(
-                      colors: colors,
-                      title: 'デフォルト分配モード',
-                      trailing: SizedBox(
-                        width: 140,
-                        child: _ChoiceBar(
-                          colors: colors,
-                          selectedIndex:
-                              defaultSplitMode == SplitAccumulationMode.radio
-                              ? 0
-                              : 1,
-                          labels: const ['ラジオ', 'チェック'],
-                          onTap: (index) => onSetDefaultSplitMode(
-                            index == 0
-                                ? SplitAccumulationMode.radio
-                                : SplitAccumulationMode.checkbox,
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 5),
-                    Text(
-                      '新しく追加するセッションの初期値として使います。',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: colors.secondaryText,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                _SettingsGroup(
-                  colors: colors,
-                  label: 'サマリー表示',
-                  children: [
-                    _SettingsRow(
-                      colors: colors,
-                      title: 'サマリー表示フォーマット',
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          _SummaryFormatMenu(
-                            colors: colors,
-                            selectedFormatId: selectedSummaryFormatId,
-                            customFormats: customSummaryFormats,
-                            onSelected: onSetSummaryFormat,
-                            onAdd: onAddSummaryFormat,
-                          ),
-                          const SizedBox(width: 5),
-                          _SummaryFormatEditButton(
-                            colors: colors,
-                            selectedFormat: resolveSummaryFormat(
-                              selectedSummaryFormatId,
-                              customSummaryFormats,
-                            ),
-                            onAdd: onAddSummaryFormat,
-                            onEdit: onEditSummaryFormat,
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    _SettingsRow(
-                      colors: colors,
-                      title: '時間表示形式',
-                      trailing: _MenuValuePill(
+            child: _CompactScrollbarTheme(
+              child: ListView(
+                key: const ValueKey<String>('settings-scroll-view'),
+                padding: const EdgeInsets.only(right: _desktopScrollbarGutter),
+                children: [
+                  _SettingsGroup(
+                    colors: colors,
+                    label: 'テーマカラー',
+                    children: [
+                      _SettingsRow(
                         colors: colors,
-                        label: summaryTimePreviewLabel,
-                        onPressed: () => onSetSummaryTimeFormat(
-                          summaryTimeFormat == _SummaryTimeFormat.decimalHours
-                              ? _SummaryTimeFormat.hourMinute
-                              : _SummaryTimeFormat.decimalHours,
+                        title: 'テーマカラー',
+                        trailing: SizedBox(
+                          width: 140,
+                          child: _ChoiceBar(
+                            colors: colors,
+                            selectedIndex: isMonochrome ? 1 : 0,
+                            labels: const ['カラー', 'モノクロ'],
+                            onTap: (index) => onSetTheme(index == 1),
+                          ),
                         ),
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                _SettingsGroup(
-                  colors: colors,
-                  label: 'ショートカット',
-                  children: [
-                    _SettingsRow(
-                      colors: colors,
-                      title: 'グローバルショートカット',
-                      trailing: SizedBox(
-                        width: 140,
-                        child: _ChoiceBar(
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _SettingsGroup(
+                    colors: colors,
+                    label: '表示',
+                    children: [
+                      _SettingsRow(
+                        colors: colors,
+                        title: 'リング周期（1周）',
+                        trailing: _InlineStepperValue(
+                          value: '$ringHoursPerCycle時間',
+                          onDecrease: () =>
+                              onSetRingHoursPerCycle(ringHoursPerCycle - 1),
+                          onIncrease: () =>
+                              onSetRingHoursPerCycle(ringHoursPerCycle + 1),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      _SectionLabel(
+                        colors: colors,
+                        label: '新規セッションのデフォルトSplit配分モード',
+                      ),
+                      const SizedBox(height: 6),
+                      _SettingsRow(
+                        colors: colors,
+                        title: 'デフォルト分配モード',
+                        trailing: SizedBox(
+                          width: 140,
+                          child: _ChoiceBar(
+                            colors: colors,
+                            selectedIndex:
+                                defaultSplitMode == SplitAccumulationMode.radio
+                                ? 0
+                                : 1,
+                            labels: const ['ラジオ', 'チェック'],
+                            onTap: (index) => onSetDefaultSplitMode(
+                              index == 0
+                                  ? SplitAccumulationMode.radio
+                                  : SplitAccumulationMode.checkbox,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        '新しく追加するセッションの初期値として使います。',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: colors.secondaryText,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _SettingsGroup(
+                    colors: colors,
+                    label: 'サマリー表示',
+                    children: [
+                      _SettingsRow(
+                        colors: colors,
+                        title: 'サマリー表示フォーマット',
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _SummaryFormatMenu(
+                              colors: colors,
+                              selectedFormatId: selectedSummaryFormatId,
+                              customFormats: customSummaryFormats,
+                              onSelected: onSetSummaryFormat,
+                              onAdd: onAddSummaryFormat,
+                            ),
+                            const SizedBox(width: 5),
+                            _SummaryFormatEditButton(
+                              colors: colors,
+                              selectedFormat: resolveSummaryFormat(
+                                selectedSummaryFormatId,
+                                customSummaryFormats,
+                              ),
+                              onAdd: onAddSummaryFormat,
+                              onEdit: onEditSummaryFormat,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      _SettingsRow(
+                        colors: colors,
+                        title: '時間表示形式',
+                        trailing: _MenuValuePill(
                           colors: colors,
-                          selectedIndex: shortcutsEnabled ? 0 : 1,
-                          labels: const ['オン', 'オフ'],
-                          onTap: (index) => onSetShortcutsEnabled(index == 0),
+                          label: summaryTimePreviewLabel,
+                          onPressed: () => onSetSummaryTimeFormat(
+                            summaryTimeFormat == _SummaryTimeFormat.decimalHours
+                                ? _SummaryTimeFormat.hourMinute
+                                : _SummaryTimeFormat.decimalHours,
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 5),
-                    Text(
-                      'Desktop版のみ、⌘⌃Sなどのグローバルショートカットを使います。',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: colors.secondaryText,
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _SettingsGroup(
+                    colors: colors,
+                    label: 'ショートカット',
+                    children: [
+                      _SettingsRow(
+                        colors: colors,
+                        title: 'グローバルショートカット',
+                        trailing: SizedBox(
+                          width: 140,
+                          child: _ChoiceBar(
+                            colors: colors,
+                            selectedIndex: shortcutsEnabled ? 0 : 1,
+                            labels: const ['オン', 'オフ'],
+                            onTap: (index) => onSetShortcutsEnabled(index == 0),
+                          ),
+                        ),
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                _SettingsGroup(
-                  colors: colors,
-                  label: '案内',
-                  children: [
-                    _ActionRow(
-                      colors: colors,
-                      title: '操作説明',
-                      icon: Icons.question_mark,
-                      onPressed: onOpenGuide,
-                    ),
-                    const SizedBox(height: 6),
-                    _ActionRow(
-                      colors: colors,
-                      title: 'お問い合わせ',
-                      icon: Icons.mail_outline,
-                      onPressed: onOpenContact,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                _SettingsGroup(
-                  colors: colors,
-                  label: 'ストレージ管理',
-                  children: [
-                    _ActionRow(
-                      colors: colors,
-                      title: '旧データをインポート',
-                      icon: Icons.file_download_outlined,
-                      onPressed: onRequestLegacyImport,
-                    ),
-                    const SizedBox(height: 6),
-                    _ActionRow(
-                      colors: colors,
-                      title: 'sessions.jsonを選択',
-                      icon: Icons.folder_open,
-                      onPressed: onImportLegacyDataFromFile,
-                    ),
-                    const SizedBox(height: 6),
-                    _ActionRow(
-                      colors: colors,
-                      title: 'セッション情報',
-                      icon: Icons.delete_outline,
-                      destructive: true,
-                      onPressed: () => onRequestStorageAction(
-                        _SettingsStorageAction.deleteSessionData,
+                      const SizedBox(height: 5),
+                      Text(
+                        'Desktop版のみ、⌘⌃Sなどのグローバルショートカットを使います。',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: colors.secondaryText,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 6),
-                    _ActionRow(
-                      colors: colors,
-                      title: 'Split情報',
-                      icon: Icons.delete_outline,
-                      destructive: true,
-                      onPressed: () => onRequestStorageAction(
-                        _SettingsStorageAction.deleteLapData,
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _SettingsGroup(
+                    colors: colors,
+                    label: '案内',
+                    children: [
+                      _ActionRow(
+                        colors: colors,
+                        title: '操作説明',
+                        icon: Icons.question_mark,
+                        onPressed: onOpenGuide,
                       ),
-                    ),
-                    const SizedBox(height: 6),
-                    _ActionRow(
-                      colors: colors,
-                      title: '設定のみ初期化',
-                      icon: Icons.refresh,
-                      onPressed: () => onRequestStorageAction(
-                        _SettingsStorageAction.resetSettings,
+                      const SizedBox(height: 6),
+                      _ActionRow(
+                        colors: colors,
+                        title: 'お問い合わせ',
+                        icon: Icons.mail_outline,
+                        onPressed: onOpenContact,
                       ),
-                    ),
-                    const SizedBox(height: 6),
-                    _ActionRow(
-                      colors: colors,
-                      title: '全データ初期化',
-                      icon: Icons.warning_amber,
-                      destructive: true,
-                      onPressed: () => onRequestStorageAction(
-                        _SettingsStorageAction.initializeAllData,
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _SettingsGroup(
+                    colors: colors,
+                    label: 'ストレージ管理',
+                    children: [
+                      _ActionRow(
+                        colors: colors,
+                        title: '旧データをインポート',
+                        icon: Icons.file_download_outlined,
+                        onPressed: onRequestLegacyImport,
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                _SettingsGroup(
-                  colors: colors,
-                  label: 'アプリ',
-                  children: [
-                    _ActionRow(
-                      colors: colors,
-                      title: 'SplitLogを終了',
-                      icon: Icons.power_settings_new,
-                      onPressed: onQuitApp,
-                    ),
-                  ],
-                ),
-              ],
+                      const SizedBox(height: 6),
+                      _ActionRow(
+                        colors: colors,
+                        title: 'sessions.jsonを選択',
+                        icon: Icons.folder_open,
+                        onPressed: onImportLegacyDataFromFile,
+                      ),
+                      const SizedBox(height: 6),
+                      _ActionRow(
+                        colors: colors,
+                        title: 'セッション情報',
+                        icon: Icons.delete_outline,
+                        destructive: true,
+                        onPressed: () => onRequestStorageAction(
+                          _SettingsStorageAction.deleteSessionData,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      _ActionRow(
+                        colors: colors,
+                        title: 'Split情報',
+                        icon: Icons.delete_outline,
+                        destructive: true,
+                        onPressed: () => onRequestStorageAction(
+                          _SettingsStorageAction.deleteLapData,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      _ActionRow(
+                        colors: colors,
+                        title: '設定のみ初期化',
+                        icon: Icons.refresh,
+                        onPressed: () => onRequestStorageAction(
+                          _SettingsStorageAction.resetSettings,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      _ActionRow(
+                        colors: colors,
+                        title: '全データ初期化',
+                        icon: Icons.warning_amber,
+                        destructive: true,
+                        onPressed: () => onRequestStorageAction(
+                          _SettingsStorageAction.initializeAllData,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _SettingsGroup(
+                    colors: colors,
+                    label: 'アプリ',
+                    children: [
+                      _ActionRow(
+                        colors: colors,
+                        title: 'SplitLogを終了',
+                        icon: Icons.power_settings_new,
+                        onPressed: onQuitApp,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 12),
@@ -3275,7 +3370,8 @@ class _SummaryFormatEditorState extends State<_SummaryFormatEditor> {
     _exampleTitleController = _controller('API実装');
     _exampleTimeController = _controller('1.1h');
     _exampleMemoController = _controller(
-      '認証処理とデータ保存の実装を進めました。\nエラー処理を追加して動作確認を続けます。',
+      '午前中に資料作成を進めました。\\n確認が必要な箇所を整理しました。\n'
+      '午後は打ち合わせの内容をまとめます。',
     );
     for (final rule in widget.initialFormat.rules) {
       _rules.add(_ruleControllers(rule));
@@ -3356,8 +3452,8 @@ class _SummaryFormatEditorState extends State<_SummaryFormatEditor> {
     final colors = widget.colors;
     return _ModalSurface(
       colors: colors,
-      width: 516,
-      height: 356,
+      width: 540,
+      height: 376,
       padding: const EdgeInsets.all(12),
       child: Column(
         children: [
@@ -3369,7 +3465,7 @@ class _SummaryFormatEditorState extends State<_SummaryFormatEditor> {
               ),
               const Spacer(),
               Text(
-                '␣ 半角  □ 全角  ↵ 改行',
+                '␣ 半角  □ 全角',
                 style: TextStyle(fontSize: 10, color: colors.secondaryText),
               ),
             ],
@@ -3379,11 +3475,18 @@ class _SummaryFormatEditorState extends State<_SummaryFormatEditor> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                SizedBox(width: 216, child: _buildPreviewColumn(colors)),
+                SizedBox(
+                  key: const ValueKey<String>('summary-format-preview-column'),
+                  width: 276,
+                  child: _buildPreviewColumn(colors),
+                ),
                 const SizedBox(width: 10),
                 VerticalDivider(width: 1, color: colors.border),
                 const SizedBox(width: 10),
-                Expanded(child: _buildEditorColumn(colors)),
+                Expanded(
+                  key: const ValueKey<String>('summary-format-editor-column'),
+                  child: _buildEditorColumn(colors),
+                ),
               ],
             ),
           ),
@@ -3421,7 +3524,11 @@ class _SummaryFormatEditorState extends State<_SummaryFormatEditor> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _SectionLabel(colors: colors, label: '入力例'),
+        _FormatSectionHeading(
+          colors: colors,
+          icon: Icons.edit_outlined,
+          label: '入力例',
+        ),
         const SizedBox(height: 5),
         _EditorField(
           colors: colors,
@@ -3441,29 +3548,37 @@ class _SummaryFormatEditorState extends State<_SummaryFormatEditor> {
           colors: colors,
           controller: _exampleMemoController,
           label: 'メモ',
-          lines: 2,
+          maxLines: 3,
           fieldKey: const ValueKey<String>('format-example-memo-field'),
         ),
         const SizedBox(height: 7),
-        _SectionLabel(colors: colors, label: 'サマリープレビュー'),
+        _FormatSectionHeading(
+          colors: colors,
+          icon: Icons.visibility_outlined,
+          label: 'プレビュー',
+        ),
         const SizedBox(height: 5),
         Expanded(
           child: Container(
             key: const ValueKey<String>('summary-format-preview'),
             width: double.infinity,
-            padding: const EdgeInsets.all(7),
+            padding: const EdgeInsets.fromLTRB(10, 8, 8, 8),
             decoration: BoxDecoration(
-              color: colors.memoFieldBackground,
-              border: Border.all(color: colors.border),
-              borderRadius: BorderRadius.circular(6),
+              color: Colors.white.withValues(alpha: 0.82),
+              border: Border(
+                left: BorderSide(
+                  color: colors.accent.withValues(alpha: 0.72),
+                  width: 2,
+                ),
+              ),
             ),
             child: SingleChildScrollView(
               child: Text(
-                _encodeVisiblePreview(_previewText),
+                _previewText,
                 style: TextStyle(
                   color: colors.primaryText,
                   fontSize: 10,
-                  height: 1.35,
+                  height: 1.5,
                 ),
               ),
             ),
@@ -3474,74 +3589,77 @@ class _SummaryFormatEditorState extends State<_SummaryFormatEditor> {
   }
 
   Widget _buildEditorColumn(_DesktopPreviewColors colors) {
-    return ListView(
-      padding: EdgeInsets.zero,
-      children: [
-        _EditorField(
-          colors: colors,
-          controller: _nameController,
-          label: 'フォーマット名',
-          fieldKey: const ValueKey<String>('format-name-field'),
-        ),
-        const SizedBox(height: 7),
-        _TemplateEditorField(
-          colors: colors,
-          controller: _titleTemplateController,
-          label: 'タイトル表示',
-          token: '{title}',
-          fieldKey: const ValueKey<String>('format-title-template-field'),
-        ),
-        const SizedBox(height: 7),
-        _TemplateEditorField(
-          colors: colors,
-          controller: _timeTemplateController,
-          label: '作業時間表示',
-          token: '{time}',
-          fieldKey: const ValueKey<String>('format-time-template-field'),
-        ),
-        const SizedBox(height: 7),
-        _TemplateEditorField(
-          colors: colors,
-          controller: _memoTemplateController,
-          label: 'メモ表示',
-          token: '{memo}',
-          fieldKey: const ValueKey<String>('format-memo-template-field'),
-        ),
-        const SizedBox(height: 10),
-        Row(
-          children: [
-            _SectionLabel(colors: colors, label: '文字列置換ルール'),
-            const Spacer(),
-            _MiniIconButton(
-              colors: colors,
-              icon: Icons.add,
-              tooltip: 'ルールを追加',
-              onPressed: _addRule,
-            ),
-          ],
-        ),
-        const SizedBox(height: 5),
-        if (_rules.isEmpty)
-          Text(
-            'ルールなし',
-            style: TextStyle(fontSize: 10, color: colors.secondaryText),
+    return _CompactScrollbarTheme(
+      child: ListView(
+        key: const ValueKey<String>('summary-format-editor-scroll-view'),
+        padding: const EdgeInsets.only(right: _desktopScrollbarGutter),
+        children: [
+          _FormatSectionHeading(
+            colors: colors,
+            icon: Icons.tune,
+            label: '表示形式',
           ),
-        for (var index = 0; index < _rules.length; index += 1) ...[
-          _buildRuleEditor(colors, index),
-          if (index != _rules.length - 1) const SizedBox(height: 7),
+          const SizedBox(height: 5),
+          _EditorField(
+            colors: colors,
+            controller: _nameController,
+            label: 'フォーマット名',
+            fieldKey: const ValueKey<String>('format-name-field'),
+          ),
+          const SizedBox(height: 7),
+          _TemplateEditorField(
+            colors: colors,
+            controller: _titleTemplateController,
+            label: 'タイトル表示',
+            token: '{title}',
+            fieldKey: const ValueKey<String>('format-title-template-field'),
+          ),
+          const SizedBox(height: 7),
+          _TemplateEditorField(
+            colors: colors,
+            controller: _timeTemplateController,
+            label: '作業時間表示',
+            token: '{time}',
+            fieldKey: const ValueKey<String>('format-time-template-field'),
+          ),
+          const SizedBox(height: 7),
+          _TemplateEditorField(
+            colors: colors,
+            controller: _memoTemplateController,
+            label: 'メモ表示',
+            token: '{memo}',
+            fieldKey: const ValueKey<String>('format-memo-template-field'),
+          ),
+          const SizedBox(height: 10),
+          _FormatSectionHeading(
+            colors: colors,
+            icon: Icons.find_replace,
+            label: '置換ルール',
+            trailing: _AddRuleButton(colors: colors, onPressed: _addRule),
+          ),
+          const SizedBox(height: 5),
+          if (_rules.isEmpty)
+            Text(
+              'ルールなし',
+              style: TextStyle(fontSize: 10, color: colors.secondaryText),
+            ),
+          for (var index = 0; index < _rules.length; index += 1) ...[
+            _buildRuleEditor(colors, index),
+            if (index != _rules.length - 1) const SizedBox(height: 7),
+          ],
         ],
-      ],
+      ),
     );
   }
 
   Widget _buildRuleEditor(_DesktopPreviewColors colors, int index) {
     final rule = _rules[index];
     return Container(
-      padding: const EdgeInsets.all(7),
+      padding: const EdgeInsets.fromLTRB(8, 6, 8, 8),
       decoration: BoxDecoration(
-        color: colors.panelSurface.withValues(alpha: 0.7),
+        color: Colors.white.withValues(alpha: 0.56),
         border: Border.all(color: colors.border),
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(5),
       ),
       child: Column(
         children: [
@@ -3549,9 +3667,10 @@ class _SummaryFormatEditorState extends State<_SummaryFormatEditor> {
             children: [
               Text(
                 'ルール ${index + 1}',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.w600,
+                  color: colors.primaryText,
                 ),
               ),
               const Spacer(),
@@ -3585,7 +3704,7 @@ class _SummaryFormatEditorState extends State<_SummaryFormatEditor> {
             colors: colors,
             controller: rule.matchController,
             label: '検索文字列',
-            lines: 2,
+            maxLines: 3,
             fieldKey: ValueKey<String>('format-rule-match-$index'),
           ),
           const SizedBox(height: 5),
@@ -3651,19 +3770,120 @@ class _SummaryRuleControllers {
   }
 }
 
+class _CompactScrollbarTheme extends StatelessWidget {
+  const _CompactScrollbarTheme({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return ScrollbarTheme(
+      data: ScrollbarTheme.of(context).copyWith(
+        thickness: const WidgetStatePropertyAll<double?>(
+          _compactScrollbarThickness,
+        ),
+        radius: const Radius.circular(3),
+      ),
+      child: child,
+    );
+  }
+}
+
+class _FormatSectionHeading extends StatelessWidget {
+  const _FormatSectionHeading({
+    required this.colors,
+    required this.icon,
+    required this.label,
+    this.trailing,
+  });
+
+  final _DesktopPreviewColors colors;
+  final IconData icon;
+  final String label;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 18,
+      child: Row(
+        children: [
+          Icon(icon, size: 12, color: colors.accent),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              color: colors.primaryText,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          if (trailing != null) ...[const Spacer(), trailing!],
+        ],
+      ),
+    );
+  }
+}
+
+class _AddRuleButton extends StatelessWidget {
+  const _AddRuleButton({required this.colors, required this.onPressed});
+
+  final _DesktopPreviewColors colors;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: 'ルールを追加',
+      child: InkWell(
+        key: const ValueKey<String>('format-add-rule-button'),
+        borderRadius: BorderRadius.circular(4),
+        mouseCursor: SystemMouseCursors.click,
+        hoverColor: colors.accent.withValues(alpha: 0.10),
+        onTap: onPressed,
+        child: Ink(
+          height: 18,
+          padding: const EdgeInsets.symmetric(horizontal: 5),
+          decoration: BoxDecoration(
+            color: colors.accent.withValues(alpha: 0.08),
+            border: Border.all(color: colors.accent.withValues(alpha: 0.38)),
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.add, size: 10, color: colors.accent),
+              const SizedBox(width: 2),
+              Text(
+                'ルール',
+                style: TextStyle(
+                  color: colors.accent,
+                  fontSize: 10,
+                  height: 1,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _EditorField extends StatelessWidget {
   const _EditorField({
     required this.colors,
     required this.controller,
     required this.label,
-    this.lines = 1,
+    this.maxLines = 1,
     this.fieldKey,
   });
 
   final _DesktopPreviewColors colors;
   final TextEditingController controller;
   final String label;
-  final int lines;
+  final int maxLines;
   final Key? fieldKey;
 
   @override
@@ -3673,27 +3893,28 @@ class _EditorField extends StatelessWidget {
       children: [
         Text(
           label,
-          style: TextStyle(fontSize: 10, color: colors.secondaryText),
+          style: TextStyle(
+            fontSize: 10,
+            color: colors.primaryText.withValues(alpha: 0.72),
+            fontWeight: FontWeight.w500,
+          ),
         ),
         const SizedBox(height: 3),
-        SizedBox(
-          height: lines == 1 ? 28 : 44,
-          child: TextField(
-            key: fieldKey,
-            controller: controller,
-            minLines: lines,
-            maxLines: lines,
-            textInputAction: lines == 1
-                ? TextInputAction.done
-                : TextInputAction.newline,
-            inputFormatters: const [_VisibleWhitespaceFormatter()],
-            style: TextStyle(
-              color: colors.primaryText,
-              fontSize: 10,
-              height: 1.25,
-            ),
-            decoration: _editorInputDecoration(colors),
+        TextField(
+          key: fieldKey,
+          controller: controller,
+          minLines: 1,
+          maxLines: maxLines,
+          textInputAction: maxLines == 1
+              ? TextInputAction.done
+              : TextInputAction.newline,
+          inputFormatters: const [_VisibleWhitespaceFormatter()],
+          style: TextStyle(
+            color: colors.primaryText,
+            fontSize: 10,
+            height: 1.25,
           ),
+          decoration: _editorInputDecoration(colors),
         ),
       ],
     );
@@ -3724,7 +3945,11 @@ class _TemplateEditorField extends StatelessWidget {
           children: [
             Text(
               label,
-              style: TextStyle(fontSize: 10, color: colors.secondaryText),
+              style: TextStyle(
+                fontSize: 10,
+                color: colors.primaryText.withValues(alpha: 0.72),
+                fontWeight: FontWeight.w500,
+              ),
             ),
             const Spacer(),
             _TokenButton(
@@ -3735,22 +3960,19 @@ class _TemplateEditorField extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 3),
-        SizedBox(
-          height: 44,
-          child: TextField(
-            key: fieldKey,
-            controller: controller,
-            minLines: 2,
-            maxLines: 2,
-            textInputAction: TextInputAction.newline,
-            inputFormatters: const [_VisibleWhitespaceFormatter()],
-            style: TextStyle(
-              color: colors.primaryText,
-              fontSize: 10,
-              height: 1.25,
-            ),
-            decoration: _editorInputDecoration(colors),
+        TextField(
+          key: fieldKey,
+          controller: controller,
+          minLines: 1,
+          maxLines: 3,
+          textInputAction: TextInputAction.newline,
+          inputFormatters: const [_VisibleWhitespaceFormatter()],
+          style: TextStyle(
+            color: colors.primaryText,
+            fontSize: 10,
+            height: 1.25,
           ),
+          decoration: _editorInputDecoration(colors),
         ),
       ],
     );
@@ -3770,19 +3992,40 @@ class _TokenButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(4),
-      onTap: onPressed,
-      child: Container(
-        height: 18,
-        padding: const EdgeInsets.symmetric(horizontal: 5),
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: colors.headerControl,
-          border: Border.all(color: colors.border),
-          borderRadius: BorderRadius.circular(4),
+    return Tooltip(
+      message: '$tokenを入力欄へ挿入',
+      child: InkWell(
+        key: ValueKey<String>('format-token-$token'),
+        borderRadius: BorderRadius.circular(3),
+        mouseCursor: SystemMouseCursors.click,
+        hoverColor: colors.accent.withValues(alpha: 0.14),
+        onTap: onPressed,
+        child: Ink(
+          height: 16,
+          padding: const EdgeInsets.symmetric(horizontal: 3),
+          decoration: BoxDecoration(
+            color: colors.accent.withValues(alpha: 0.08),
+            border: Border.all(color: colors.accent.withValues(alpha: 0.42)),
+            borderRadius: BorderRadius.circular(3),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Icon(Icons.add, size: 8, color: colors.accent),
+              const SizedBox(width: 1),
+              Text(
+                token,
+                style: TextStyle(
+                  fontSize: 10,
+                  height: 1,
+                  color: colors.accent,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
         ),
-        child: Text(token, style: const TextStyle(fontSize: 9)),
       ),
     );
   }
@@ -3883,24 +4126,14 @@ class _VisibleWhitespaceFormatter extends TextInputFormatter {
 
 String _encodeVisibleWhitespace(String value) {
   return value
-      .replaceAll('\r\n', '↵')
-      .replaceAll('\r', '↵')
-      .replaceAll('\n', '↵')
+      .replaceAll('\r\n', '\n')
+      .replaceAll('\r', '\n')
       .replaceAll('　', '□')
       .replaceAll(' ', '␣');
 }
 
 String _decodeVisibleWhitespace(String value) {
-  return value.replaceAll('␣', ' ').replaceAll('□', '　').replaceAll('↵', '\n');
-}
-
-String _encodeVisiblePreview(String value) {
-  return value
-      .replaceAll('\r\n', '\n')
-      .replaceAll('\r', '\n')
-      .replaceAll('　', '□')
-      .replaceAll(' ', '␣')
-      .replaceAll('\n', '↵\n');
+  return value.replaceAll('␣', ' ').replaceAll('□', '　');
 }
 
 class _SettingsGroup extends StatelessWidget {

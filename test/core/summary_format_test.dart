@@ -21,7 +21,7 @@ void main() {
       memo: '仕様を確認\r\n実装を開始',
     );
 
-    expect(rendered, '[設計]　(1.1h)\n   - 仕様を確認\n   - 実装を開始');
+    expect(rendered, '[ 設計 ]　(1.1h)\n   ・仕様を確認\n   ・実装を開始');
   });
 
   test('template rule targets the literal backslash-n string', () {
@@ -32,7 +32,7 @@ void main() {
       memo: r'仕様を確認\n実装を開始',
     );
 
-    expect(rendered, '[設計]　(1.1h)\n   - 仕様を確認        - 実装を開始');
+    expect(rendered, '[ 設計 ]　(1.1h)\n   ・仕様を確認\n        - 実装を開始');
   });
 
   test('memo format is not applied to newlines inserted by a rule', () {
@@ -69,7 +69,7 @@ void main() {
       memo: '仕様を確認\n\n',
     );
 
-    expect(rendered, '[設計]　(1.1h)\n   - 仕様を確認');
+    expect(rendered, '[ 設計 ]　(1.1h)\n   ・仕様を確認');
   });
 
   test('custom replacement rules run from top to bottom', () {
@@ -111,6 +111,6 @@ void main() {
       memo: '  ',
     );
 
-    expect(rendered, '[確認]　(0.2h)');
+    expect(rendered, '[ 確認 ]　(0.2h)');
   });
 }

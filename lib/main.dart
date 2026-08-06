@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'core/services/session_storage_service.dart';
 import 'features/session/desktop/desktop_session_view.dart';
 
 void main() {
@@ -7,7 +8,9 @@ void main() {
 }
 
 class SplitLogApp extends StatelessWidget {
-  const SplitLogApp({super.key});
+  const SplitLogApp({super.key, this.storage});
+
+  final SessionStorageService? storage;
 
   @override
   Widget build(BuildContext context) {
@@ -17,6 +20,10 @@ class SplitLogApp extends StatelessWidget {
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF2F6FED)),
         useMaterial3: true,
+        inputDecorationTheme: const InputDecorationThemeData(
+          focusColor: Colors.transparent,
+          hoverColor: Colors.transparent,
+        ),
         fontFamilyFallback: const [
           'Hiragino Sans',
           'Yu Gothic',
@@ -24,19 +31,21 @@ class SplitLogApp extends StatelessWidget {
           'sans-serif',
         ],
       ),
-      home: const SplitLogDesktopPreviewPage(),
+      home: SplitLogDesktopPreviewPage(storage: storage),
     );
   }
 }
 
 class SplitLogDesktopPreviewPage extends StatelessWidget {
-  const SplitLogDesktopPreviewPage({super.key});
+  const SplitLogDesktopPreviewPage({super.key, this.storage});
+
+  final SessionStorageService? storage;
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(
-      backgroundColor: Color(0xFFE9EBEF),
-      body: Center(child: DesktopSessionView()),
+    return Scaffold(
+      backgroundColor: const Color(0xFFE9EBEF),
+      body: Center(child: DesktopSessionView(storage: storage)),
     );
   }
 }

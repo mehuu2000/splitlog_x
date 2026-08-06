@@ -13,6 +13,7 @@ class StopwatchController {
   }
 
   final IdGenerator _idGenerator;
+  bool _repairedIdentifiers = false;
 
   WorkSession? _session;
   List<WorkLap> _laps = [];
@@ -32,6 +33,7 @@ class StopwatchController {
   SplitAccumulationMode get splitAccumulationMode => _splitAccumulationMode;
   SessionState get state => _state;
   DateTime? get pauseStartedAt => _pauseStartedAt;
+  bool get repairedIdentifiers => _repairedIdentifiers;
 
   WorkLap? get currentLap {
     final selected = _selectedLapId;
@@ -136,7 +138,7 @@ class StopwatchController {
     final nextIndex =
         _laps.fold(0, (max, lap) => lap.index > max ? lap.index : max) + 1;
     final nextLap = WorkLap(
-      id: _idGenerator(),
+      id: _newUniqueId(),
       sessionId: _session!.id,
       index: nextIndex,
       startedAt: at,
@@ -374,8 +376,9 @@ class StopwatchController {
       return 0;
     }
 
-    return (end.difference(session.startedAt).inMilliseconds ~/ 1000) -
-        _totalPausedSeconds;
+    return ((end.difference(session.startedAt).inMilliseconds ~/ 1000) -
+            _totalPausedSeconds)
+        .clamp(0, 1 << 53);
   }
 
   int elapsedLapSeconds(WorkLap lap, {required DateTime at}) {
@@ -426,11 +429,50 @@ class StopwatchController {
 
   void _restore(StopwatchSnapshot snapshot) {
     _session = snapshot.session;
-    _laps = [...snapshot.laps];
-    _selectedLapId = _normalizedSelectedLapId(snapshot.selectedLapId);
     _splitAccumulationMode = snapshot.splitAccumulationMode;
+    final usedIds = <String>{if (_session != null) _session!.id};
+    final repairedIdsByOriginal = <String, List<String>>{};
+    final repairedLaps = <WorkLap>[];
+
+    for (final lap in snapshot.laps) {
+      final originalId = lap.id;
+      var repairedId = originalId;
+      if (repairedId.isEmpty || usedIds.contains(repairedId)) {
+        repairedId = _uniqueGeneratedId(usedIds);
+        _repairedIdentifiers = true;
+      }
+      usedIds.add(repairedId);
+      repairedIdsByOriginal
+          .putIfAbsent(originalId, () => <String>[])
+          .add(repairedId);
+      repairedLaps.add(
+        repairedId == originalId ? lap : lap.copyWith(id: repairedId),
+      );
+    }
+    _laps = repairedLaps;
+
+    final selectedCandidates = snapshot.selectedLapId == null
+        ? null
+        : repairedIdsByOriginal[snapshot.selectedLapId];
+    final remappedSelectedId =
+        selectedCandidates == null || selectedCandidates.isEmpty
+        ? snapshot.selectedLapId
+        : selectedCandidates.last;
+    final remappedActiveIds = <String>{};
+    for (final activeId in snapshot.activeLapIds) {
+      final repairedIds = repairedIdsByOriginal[activeId];
+      if (repairedIds == null || repairedIds.isEmpty) {
+        remappedActiveIds.add(activeId);
+      } else if (_splitAccumulationMode == SplitAccumulationMode.checkbox) {
+        remappedActiveIds.addAll(repairedIds);
+      } else {
+        remappedActiveIds.add(repairedIds.last);
+      }
+    }
+
+    _selectedLapId = _normalizedSelectedLapId(remappedSelectedId);
     _activeLapIds = _normalizedActiveLapIds(
-      snapshot.activeLapIds,
+      remappedActiveIds,
       selectedLapId: _selectedLapId,
       mode: _splitAccumulationMode,
     );
@@ -453,13 +495,13 @@ class StopwatchController {
   ) {
     final session = _session == null
         ? WorkSession(
-            id: _idGenerator(),
+            id: _newUniqueId(),
             title: _defaultSessionTitle(at),
             startedAt: at,
           )
         : _session!.copyWith(startedAt: at, endedAt: null);
     final initialLap = WorkLap(
-      id: _idGenerator(),
+      id: _newUniqueId(additionalUsedIds: [session.id]),
       sessionId: session.id,
       index: 1,
       startedAt: at,
@@ -477,6 +519,28 @@ class StopwatchController {
     _lastDistributedWholeSeconds = 0;
     _distributionCursor = 0;
     _totalPausedSeconds = 0;
+  }
+
+  String _newUniqueId({Iterable<String> additionalUsedIds = const []}) {
+    final usedIds = <String>{
+      if (_session != null) _session!.id,
+      for (final lap in _laps) lap.id,
+      ...additionalUsedIds,
+    };
+    return _uniqueGeneratedId(usedIds);
+  }
+
+  String _uniqueGeneratedId(Set<String> usedIds) {
+    final generated = _idGenerator().trim();
+    final base = generated.isEmpty ? 'id' : generated;
+    if (!usedIds.contains(base)) {
+      return base;
+    }
+    var suffix = 1;
+    while (usedIds.contains('$base-repaired-$suffix')) {
+      suffix += 1;
+    }
+    return '$base-repaired-$suffix';
   }
 
   void _resume(DateTime at) {
@@ -729,10 +793,12 @@ class _PendingDistribution {
 }
 
 int _idCounter = 0;
+final String _idProcessPrefix = DateTime.now().microsecondsSinceEpoch
+    .toRadixString(36);
 
 String _defaultIdGenerator() {
   _idCounter += 1;
-  return 'id-$_idCounter';
+  return 'id-$_idProcessPrefix-${_idCounter.toRadixString(36)}';
 }
 
 String _singleLineLabel(String value) {

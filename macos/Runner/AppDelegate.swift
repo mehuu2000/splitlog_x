@@ -8,6 +8,8 @@ class AppDelegate: FlutterAppDelegate, NSWindowDelegate {
   private var outsideClickLocalMonitor: Any?
   private var outsideClickGlobalMonitor: Any?
   private var isPopoverLocked = false
+  private var isTerminationPrepared = false
+  private var isTerminationRequestPending = false
 
   override func applicationDidFinishLaunching(_ notification: Notification) {
     DispatchQueue.main.async {
@@ -19,6 +21,30 @@ class AppDelegate: FlutterAppDelegate, NSWindowDelegate {
 
   override func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
     return false
+  }
+
+  override func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+    if isTerminationPrepared {
+      return .terminateNow
+    }
+    if isTerminationRequestPending {
+      return .terminateLater
+    }
+    guard let flutterWindow = mainWindow as? MainFlutterWindow else {
+      return .terminateNow
+    }
+
+    isTerminationRequestPending = true
+    flutterWindow.prepareToQuit { [weak self] shouldQuit in
+      guard let self else {
+        sender.reply(toApplicationShouldTerminate: false)
+        return
+      }
+      self.isTerminationRequestPending = false
+      self.isTerminationPrepared = shouldQuit
+      sender.reply(toApplicationShouldTerminate: shouldQuit)
+    }
+    return .terminateLater
   }
 
   override func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
@@ -117,6 +143,11 @@ class AppDelegate: FlutterAppDelegate, NSWindowDelegate {
 
   @objc
   private func quitAppFromMenu() {
+    NSApp.terminate(nil)
+  }
+
+  func terminateAfterFlutterPreparation() {
+    isTerminationPrepared = true
     NSApp.terminate(nil)
   }
 
