@@ -2,14 +2,22 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../models/session_models.dart';
+import '../models/summary_format.dart';
+
+class SessionStorageReadException implements Exception {
+  const SessionStorageReadException([this.cause]);
+
+  final Object? cause;
+}
 
 class SplitLogSettingsSnapshot {
   const SplitLogSettingsSnapshot({
     this.isLocked = false,
     this.isMonochrome = false,
-    this.ringHoursPerCycle = 4,
+    this.ringHoursPerCycle = 3,
     this.defaultSplitMode = SplitAccumulationMode.radio,
-    this.summaryMemoFormat = 'bulleted',
+    this.selectedSummaryFormatId = standardSummaryFormatId,
+    this.customSummaryFormats = const [],
     this.summaryTimeFormat = 'decimalHours',
     this.shortcutsEnabled = true,
   });
@@ -18,7 +26,8 @@ class SplitLogSettingsSnapshot {
   final bool isMonochrome;
   final int ringHoursPerCycle;
   final SplitAccumulationMode defaultSplitMode;
-  final String summaryMemoFormat;
+  final String selectedSummaryFormatId;
+  final List<SummaryFormatDefinition> customSummaryFormats;
   final String summaryTimeFormat;
   final bool shortcutsEnabled;
 
@@ -28,24 +37,36 @@ class SplitLogSettingsSnapshot {
       'isMonochrome': isMonochrome,
       'ringHoursPerCycle': ringHoursPerCycle,
       'defaultSplitMode': defaultSplitMode.name,
-      'summaryMemoFormat': summaryMemoFormat,
+      'selectedSummaryFormatId': selectedSummaryFormatId,
+      'customSummaryFormats': customSummaryFormats
+          .map((format) => format.toJson())
+          .toList(),
       'summaryTimeFormat': summaryTimeFormat,
       'shortcutsEnabled': shortcutsEnabled,
     };
   }
 
   static SplitLogSettingsSnapshot fromJson(Map<String, Object?> json) {
+    final customSummaryFormats = _summaryFormatsValue(
+      json['customSummaryFormats'],
+    );
+    final legacyMemoFormat = json['summaryMemoFormat'] as String?;
     return SplitLogSettingsSnapshot(
       isLocked: json['isLocked'] as bool? ?? false,
       isMonochrome: json['isMonochrome'] as bool? ?? false,
       ringHoursPerCycle: _intValue(
         json['ringHoursPerCycle'],
-        fallback: 4,
+        fallback: 3,
       ).clamp(1, 24),
       defaultSplitMode: SplitAccumulationMode.fromJson(
         json['defaultSplitMode'],
       ),
-      summaryMemoFormat: json['summaryMemoFormat'] as String? ?? 'bulleted',
+      selectedSummaryFormatId:
+          json['selectedSummaryFormatId'] as String? ??
+          (legacyMemoFormat == 'bulleted'
+              ? templateSummaryFormatId
+              : standardSummaryFormatId),
+      customSummaryFormats: customSummaryFormats,
       summaryTimeFormat: json['summaryTimeFormat'] as String? ?? 'decimalHours',
       shortcutsEnabled: json['shortcutsEnabled'] as bool? ?? true,
     );
@@ -61,7 +82,7 @@ class SplitLogStorageSnapshot {
     this.schemaVersion = currentSchemaVersion,
   });
 
-  static const currentSchemaVersion = 1;
+  static const currentSchemaVersion = 2;
 
   final int schemaVersion;
   final DateTime savedAt;
@@ -158,29 +179,65 @@ class SessionStorageService {
 
   final File _storageFile;
   final List<File> _legacyStorageFiles;
+  Future<void> _pendingFileOperation = Future<void>.value();
 
   Future<SplitLogStorageSnapshot?> load() async {
+    await _pendingFileOperation;
     if (!await _storageFile.exists()) {
       return null;
     }
 
     final json = await _readJsonObject(_storageFile);
     if (json == null) {
-      return null;
+      throw const SessionStorageReadException();
     }
-    return SplitLogStorageSnapshot.fromJson(json);
+    try {
+      return SplitLogStorageSnapshot.fromJson(json);
+    } on Object catch (error) {
+      throw SessionStorageReadException(error);
+    }
   }
 
-  Future<void> save(SplitLogStorageSnapshot snapshot) async {
-    await _storageFile.parent.create(recursive: true);
-    const encoder = JsonEncoder.withIndent('  ');
-    await _storageFile.writeAsString('${encoder.convert(snapshot.toJson())}\n');
+  Future<void> save(SplitLogStorageSnapshot snapshot) {
+    return _enqueueFileOperation(() async {
+      await _storageFile.parent.create(recursive: true);
+      const encoder = JsonEncoder.withIndent('  ');
+      final temporaryFile = File('${_storageFile.path}.tmp');
+      await temporaryFile.writeAsString(
+        '${encoder.convert(snapshot.toJson())}\n',
+        flush: true,
+      );
+      try {
+        await temporaryFile.rename(_storageFile.path);
+      } on FileSystemException {
+        // Windows cannot always replace an existing file with rename().
+        await temporaryFile.copy(_storageFile.path);
+        await temporaryFile.delete();
+      }
+    });
   }
 
-  Future<void> delete() async {
-    if (await _storageFile.exists()) {
-      await _storageFile.delete();
-    }
+  Future<void> delete() {
+    return _enqueueFileOperation(() async {
+      if (await _storageFile.exists()) {
+        await _storageFile.delete();
+      }
+      final temporaryFile = File('${_storageFile.path}.tmp');
+      if (await temporaryFile.exists()) {
+        await temporaryFile.delete();
+      }
+    });
+  }
+
+  Future<void> flush() => _pendingFileOperation;
+
+  Future<void> _enqueueFileOperation(Future<void> Function() operation) {
+    final scheduled = _pendingFileOperation.then((_) => operation());
+    _pendingFileOperation = scheduled.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    return scheduled;
   }
 
   Future<bool> legacySnapshotExists() async {
@@ -304,6 +361,25 @@ int _intValue(Object? value, {int fallback = 0}) {
     final double doubleValue => doubleValue.floor(),
     _ => fallback,
   };
+}
+
+List<SummaryFormatDefinition> _summaryFormatsValue(Object? value) {
+  if (value is! List<Object?>) {
+    return const [];
+  }
+  final formats = <SummaryFormatDefinition>[];
+  final seenIds = <String>{};
+  for (final item in value.whereType<Map<Object?, Object?>>()) {
+    final format = SummaryFormatDefinition.fromJson(_objectMap(item));
+    if (format.id.isEmpty ||
+        format.name.trim().isEmpty ||
+        format.isBuiltIn ||
+        !seenIds.add(format.id)) {
+      continue;
+    }
+    formats.add(format);
+  }
+  return formats;
 }
 
 DateTime _dateTimeValue(Object? value) {

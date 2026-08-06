@@ -8,6 +8,8 @@ class AppDelegate: FlutterAppDelegate, NSWindowDelegate {
   private var outsideClickLocalMonitor: Any?
   private var outsideClickGlobalMonitor: Any?
   private var isPopoverLocked = false
+  private var isTerminationPrepared = false
+  private var isTerminationRequestPending = false
 
   override func applicationDidFinishLaunching(_ notification: Notification) {
     DispatchQueue.main.async {
@@ -19,6 +21,30 @@ class AppDelegate: FlutterAppDelegate, NSWindowDelegate {
 
   override func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
     return false
+  }
+
+  override func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+    if isTerminationPrepared {
+      return .terminateNow
+    }
+    if isTerminationRequestPending {
+      return .terminateLater
+    }
+    guard let flutterWindow = mainWindow as? MainFlutterWindow else {
+      return .terminateNow
+    }
+
+    isTerminationRequestPending = true
+    flutterWindow.prepareToQuit { [weak self] shouldQuit in
+      guard let self else {
+        sender.reply(toApplicationShouldTerminate: false)
+        return
+      }
+      self.isTerminationRequestPending = false
+      self.isTerminationPrepared = shouldQuit
+      sender.reply(toApplicationShouldTerminate: shouldQuit)
+    }
+    return .terminateLater
   }
 
   override func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
@@ -120,8 +146,13 @@ class AppDelegate: FlutterAppDelegate, NSWindowDelegate {
     NSApp.terminate(nil)
   }
 
+  func terminateAfterFlutterPreparation() {
+    isTerminationPrepared = true
+    NSApp.terminate(nil)
+  }
+
   func toggleMainWindow() {
-    if let window = mainWindow, window.isVisible {
+    if let window = mainWindow, window.isVisible, window.isKeyWindow {
       hideMainWindow()
       return
     }
@@ -137,6 +168,7 @@ class AppDelegate: FlutterAppDelegate, NSWindowDelegate {
       return
     }
 
+    applyMainWindowPresentationBehavior(window)
     positionMainWindowNearStatusItem(window)
     NSApp.activate(ignoringOtherApps: true)
     window.level = isPopoverLocked ? .floating : .normal
@@ -154,10 +186,19 @@ class AppDelegate: FlutterAppDelegate, NSWindowDelegate {
 
   func setPopoverLocked(_ isLocked: Bool) {
     isPopoverLocked = isLocked
+    if let mainWindow {
+      applyMainWindowPresentationBehavior(mainWindow)
+    }
     mainWindow?.level = isLocked ? .floating : .normal
     if isLocked, let mainWindow, mainWindow.isVisible {
       mainWindow.orderFrontRegardless()
     }
+  }
+
+  private func applyMainWindowPresentationBehavior(_ window: NSWindow) {
+    var behavior: NSWindow.CollectionBehavior = [.transient, .fullScreenAuxiliary]
+    behavior.insert(isPopoverLocked ? .canJoinAllSpaces : .moveToActiveSpace)
+    window.collectionBehavior = behavior
   }
 
   private func showStatusMenu(relativeTo button: NSStatusBarButton) {
