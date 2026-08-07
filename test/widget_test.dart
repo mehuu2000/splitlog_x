@@ -28,6 +28,54 @@ void main() {
     expect(appTheme.inputDecorationTheme.hoverColor, Colors.transparent);
   });
 
+  testWidgets('guide explains the current desktop features', (
+    WidgetTester tester,
+  ) async {
+    await _pumpApp(tester, storage);
+
+    await tester.tap(find.byTooltip('使い方'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('操作説明'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('計測を始める・区切る'), findsOneWidget);
+    expect(
+      find.text('計測中に Split を押すと現在の区切りを確定し、次の Split を作成します。'),
+      findsOneWidget,
+    );
+
+    final guideScrollView = find.byKey(
+      const ValueKey<String>('guide-sections-scroll-view'),
+    );
+    final guideScrollable = find.descendant(
+      of: guideScrollView,
+      matching: find.byType(Scrollable),
+    );
+
+    await tester.scrollUntilVisible(
+      find.text('サマリー表示をカスタマイズする'),
+      180,
+      scrollable: guideScrollable,
+    );
+    await tester.tap(find.text('サマリー表示をカスタマイズする'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('カスタムでは {title}・{time}・{memo} を使い、各項目の前後や改行を自由に設定できます。'),
+      findsOneWidget,
+    );
+
+    await tester.scrollUntilVisible(
+      find.text('データを移行・管理する'),
+      180,
+      scrollable: guideScrollable,
+    );
+    await tester.tap(find.text('データを移行・管理する'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('セッションと設定はこの端末内に保存され、ほかの端末とは自動同期されません。'), findsOneWidget);
+  });
+
   testWidgets('blocks actions until storage loading completes', (
     WidgetTester tester,
   ) async {
@@ -188,6 +236,55 @@ void main() {
     summary = tester.widget<TextField>(summaryEditor).controller!.text;
     expect(summary, contains('実装'));
     expect(summary, isNot(contains('[ 実装 ]')));
+  });
+
+  testWidgets('custom summary format can be created from summary menu', (
+    WidgetTester tester,
+  ) async {
+    await _pumpApp(tester, storage);
+
+    await tester.tap(find.text('開始'));
+    await tester.pump();
+    await tester.tap(find.byTooltip('サマリー'));
+    await tester.pump();
+
+    await tester.tap(find.byKey(const ValueKey<String>('summary-format-menu')));
+    await tester.pumpAndSettle();
+    expect(find.text('カスタムを追加'), findsOneWidget);
+
+    await tester.tap(find.text('カスタムを追加'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('カスタムフォーマット'), findsOneWidget);
+    expect(find.text('削除'), findsNothing);
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('format-name-field')),
+      '共有用',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('format-title-template-field')),
+      '## {title}',
+    );
+    await tester.tap(find.text('保存'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('カスタムフォーマット'), findsNothing);
+    expect(find.text('サマリー'), findsOneWidget);
+    expect(find.text('共有用'), findsOneWidget);
+
+    final summaryEditor = find.byType(TextField);
+    expect(summaryEditor, findsOneWidget);
+    expect(
+      tester.widget<TextField>(summaryEditor).controller!.text,
+      contains('## 作業1'),
+    );
+
+    final savedSettings = storage.snapshot!.settings;
+    expect(savedSettings.customSummaryFormats.single.name, '共有用');
+    expect(
+      savedSettings.selectedSummaryFormatId,
+      savedSettings.customSummaryFormats.single.id,
+    );
   });
 
   testWidgets('memo remains open when tapping outside', (

@@ -15,7 +15,10 @@ class AppDelegate: FlutterAppDelegate, NSWindowDelegate {
     DispatchQueue.main.async {
       self.configureStatusItem()
       self.configureMainWindow()
-      self.showMainWindow()
+      self.mainWindow?.orderOut(nil)
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+        self.showMainWindow()
+      }
     }
   }
 
