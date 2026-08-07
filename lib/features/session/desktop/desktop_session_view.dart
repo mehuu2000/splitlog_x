@@ -70,6 +70,47 @@ _SummaryTimeFormat _summaryTimeFormatFromName(String value) {
   );
 }
 
+List<SummaryFormatDefinition> _upsertCustomSummaryFormat(
+  List<SummaryFormatDefinition> formats,
+  SummaryFormatDefinition format,
+) {
+  final existingIndex = formats.indexWhere(
+    (candidate) => candidate.id == format.id,
+  );
+  if (existingIndex < 0) {
+    return [...formats, format];
+  }
+  return [
+    for (var index = 0; index < formats.length; index += 1)
+      if (index == existingIndex) format else formats[index],
+  ];
+}
+
+SummaryFormatDefinition _createCustomSummaryFormatDraft(
+  List<SummaryFormatDefinition> formats,
+) {
+  var suffix = 1;
+  final usedNames = formats.map((format) => format.name).toSet();
+  while (usedNames.contains('カスタム$suffix')) {
+    suffix += 1;
+  }
+  final timestamp = DateTime.now().microsecondsSinceEpoch;
+  return templateSummaryFormat.copyWith(
+    id: 'custom-$timestamp',
+    name: 'カスタム$suffix',
+    rules: [
+      for (
+        var index = 0;
+        index < templateSummaryFormat.rules.length;
+        index += 1
+      )
+        templateSummaryFormat.rules[index].copyWith(
+          id: 'rule-$timestamp-$index',
+        ),
+    ],
+  );
+}
+
 const _appPlatformChannel = MethodChannel('splitlog_x/app');
 const _desktopScrollbarGutter = 10.0;
 const _compactScrollbarThickness = 6.0;
@@ -739,23 +780,28 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
   }
 
   void _saveCustomSummaryFormat(SummaryFormatDefinition format) {
-    final existingIndex = _customSummaryFormats.indexWhere(
-      (candidate) => candidate.id == format.id,
-    );
     setState(() {
-      if (existingIndex < 0) {
-        _customSummaryFormats = [..._customSummaryFormats, format];
-      } else {
-        _customSummaryFormats = [
-          for (var index = 0; index < _customSummaryFormats.length; index += 1)
-            if (index == existingIndex)
-              format
-            else
-              _customSummaryFormats[index],
-        ];
-      }
+      _customSummaryFormats = _upsertCustomSummaryFormat(
+        _customSummaryFormats,
+        format,
+      );
       _selectedSummaryFormatId = format.id;
     });
+    _persistState();
+  }
+
+  void _saveCustomSummaryFormatFromSummary(SummaryFormatDefinition format) {
+    final now = DateTime.now();
+    final summary = _currentSessionSummary(at: now, format: format);
+    setState(() {
+      _customSummaryFormats = _upsertCustomSummaryFormat(
+        _customSummaryFormats,
+        format,
+      );
+      _selectedSummaryFormatId = format.id;
+      _clock = now;
+    });
+    _replaceSummaryDraft(summary.text);
     _persistState();
   }
 
@@ -1143,6 +1189,8 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
                 onSetDefaultSplitMode: _setDefaultSplitMode,
                 onSetSummaryFormat: _setSummaryFormat,
                 onSaveCustomSummaryFormat: _saveCustomSummaryFormat,
+                onSaveCustomSummaryFormatFromSummary:
+                    _saveCustomSummaryFormatFromSummary,
                 onDeleteCustomSummaryFormat: _deleteCustomSummaryFormat,
                 onSetSummaryTimeFormat: _setSummaryTimeFormat,
                 onSetSummaryFormatFromSummary: _setSummaryFormatFromSummary,
@@ -2180,6 +2228,7 @@ class _OverlayLayer extends StatelessWidget {
     required this.onSetDefaultSplitMode,
     required this.onSetSummaryFormat,
     required this.onSaveCustomSummaryFormat,
+    required this.onSaveCustomSummaryFormatFromSummary,
     required this.onDeleteCustomSummaryFormat,
     required this.onSetSummaryTimeFormat,
     required this.onSetSummaryFormatFromSummary,
@@ -2226,6 +2275,8 @@ class _OverlayLayer extends StatelessWidget {
   final ValueChanged<SplitAccumulationMode> onSetDefaultSplitMode;
   final ValueChanged<String> onSetSummaryFormat;
   final ValueChanged<SummaryFormatDefinition> onSaveCustomSummaryFormat;
+  final ValueChanged<SummaryFormatDefinition>
+  onSaveCustomSummaryFormatFromSummary;
   final ValueChanged<String> onDeleteCustomSummaryFormat;
   final ValueChanged<_SummaryTimeFormat> onSetSummaryTimeFormat;
   final ValueChanged<String> onSetSummaryFormatFromSummary;
@@ -2326,6 +2377,7 @@ class _OverlayLayer extends StatelessWidget {
               customSummaryFormats: customSummaryFormats,
               summaryController: summaryTextController,
               onSelectSummaryFormat: onSetSummaryFormatFromSummary,
+              onSaveCustomSummaryFormat: onSaveCustomSummaryFormatFromSummary,
               onToggleTimeFormat: onToggleSummaryTimeFormat,
               onCopy: onCopySummary,
               onClose: onClose,
@@ -2712,7 +2764,7 @@ class _MemoOverlay extends StatelessWidget {
   }
 }
 
-class _SummaryOverlay extends StatelessWidget {
+class _SummaryOverlay extends StatefulWidget {
   const _SummaryOverlay({
     required this.colors,
     required this.summary,
@@ -2720,6 +2772,7 @@ class _SummaryOverlay extends StatelessWidget {
     required this.customSummaryFormats,
     required this.summaryController,
     required this.onSelectSummaryFormat,
+    required this.onSaveCustomSummaryFormat,
     required this.onToggleTimeFormat,
     required this.onCopy,
     required this.onClose,
@@ -2731,14 +2784,44 @@ class _SummaryOverlay extends StatelessWidget {
   final List<SummaryFormatDefinition> customSummaryFormats;
   final TextEditingController summaryController;
   final ValueChanged<String> onSelectSummaryFormat;
+  final ValueChanged<SummaryFormatDefinition> onSaveCustomSummaryFormat;
   final VoidCallback onToggleTimeFormat;
   final VoidCallback onCopy;
   final VoidCallback onClose;
 
   @override
+  State<_SummaryOverlay> createState() => _SummaryOverlayState();
+}
+
+class _SummaryOverlayState extends State<_SummaryOverlay> {
+  SummaryFormatDefinition? _newSummaryFormat;
+
+  @override
   Widget build(BuildContext context) {
+    final newSummaryFormat = _newSummaryFormat;
+    if (newSummaryFormat != null) {
+      return _SummaryFormatEditor(
+        key: ValueKey<String>(newSummaryFormat.id),
+        colors: widget.colors,
+        initialFormat: newSummaryFormat,
+        canDelete: false,
+        onCancel: () {
+          setState(() {
+            _newSummaryFormat = null;
+          });
+        },
+        onSave: (format) {
+          widget.onSaveCustomSummaryFormat(format);
+          setState(() {
+            _newSummaryFormat = null;
+          });
+        },
+        onDelete: () {},
+      );
+    }
+
     return _ModalSurface(
-      colors: colors,
+      colors: widget.colors,
       width: 400,
       height: 352,
       child: Column(
@@ -2751,59 +2834,66 @@ class _SummaryOverlay extends StatelessWidget {
               ),
               const SizedBox(width: 6),
               _SummaryFormatPill(
-                colors: colors,
-                selectedFormatId: selectedSummaryFormatId,
-                customFormats: customSummaryFormats,
-                onSelected: onSelectSummaryFormat,
+                colors: widget.colors,
+                selectedFormatId: widget.selectedSummaryFormatId,
+                customFormats: widget.customSummaryFormats,
+                onSelected: widget.onSelectSummaryFormat,
+                onAdd: _beginNewSummaryFormat,
               ),
               const SizedBox(width: 5),
               _SmallPill(
-                colors: colors,
-                label: summary.timeFormatLabel,
+                colors: widget.colors,
+                label: widget.summary.timeFormatLabel,
                 tooltip: '時間表示形式を切り替え',
-                onPressed: onToggleTimeFormat,
+                onPressed: widget.onToggleTimeFormat,
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  summary.headerText,
+                  widget.summary.headerText,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   textAlign: TextAlign.end,
-                  style: TextStyle(fontSize: 10, color: colors.secondaryText),
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: widget.colors.secondaryText,
+                  ),
                 ),
               ),
               const SizedBox(width: 6),
-              _SummaryCopyButton(colors: colors, onPressed: onCopy),
+              _SummaryCopyButton(
+                colors: widget.colors,
+                onPressed: widget.onCopy,
+              ),
             ],
           ),
           const SizedBox(height: 8),
           Expanded(
             child: TextField(
-              controller: summaryController,
+              controller: widget.summaryController,
               maxLines: null,
               expands: true,
               textAlignVertical: TextAlignVertical.top,
               style: TextStyle(
-                color: colors.primaryText,
+                color: widget.colors.primaryText,
                 fontSize: 12,
                 height: 1.3,
               ),
               decoration: InputDecoration(
                 filled: true,
-                fillColor: colors.memoFieldBackground,
+                fillColor: widget.colors.memoFieldBackground,
                 contentPadding: const EdgeInsets.all(8),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(7),
-                  borderSide: BorderSide(color: colors.border),
+                  borderSide: BorderSide(color: widget.colors.border),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(7),
-                  borderSide: BorderSide(color: colors.border),
+                  borderSide: BorderSide(color: widget.colors.border),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(7),
-                  borderSide: BorderSide(color: colors.border),
+                  borderSide: BorderSide(color: widget.colors.border),
                 ),
               ),
             ),
@@ -2813,8 +2903,8 @@ class _SummaryOverlay extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
               FilledButton(
-                onPressed: onClose,
-                style: colors.compactFilledButtonStyle(),
+                onPressed: widget.onClose,
+                style: widget.colors.compactFilledButtonStyle(),
                 child: const Text('閉じる'),
               ),
             ],
@@ -2822,6 +2912,14 @@ class _SummaryOverlay extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  void _beginNewSummaryFormat() {
+    setState(() {
+      _newSummaryFormat = _createCustomSummaryFormatDraft(
+        widget.customSummaryFormats,
+      );
+    });
   }
 }
 
@@ -3271,28 +3369,9 @@ class _SettingsOverlayState extends State<_SettingsOverlay> {
   }
 
   void _beginNewSummaryFormat() {
-    var suffix = 1;
-    final usedNames = widget.customSummaryFormats
-        .map((format) => format.name)
-        .toSet();
-    while (usedNames.contains('カスタム$suffix')) {
-      suffix += 1;
-    }
-    final timestamp = DateTime.now().microsecondsSinceEpoch;
     setState(() {
-      _editingSummaryFormat = templateSummaryFormat.copyWith(
-        id: 'custom-$timestamp',
-        name: 'カスタム$suffix',
-        rules: [
-          for (
-            var index = 0;
-            index < templateSummaryFormat.rules.length;
-            index += 1
-          )
-            templateSummaryFormat.rules[index].copyWith(
-              id: 'rule-$timestamp-$index',
-            ),
-        ],
+      _editingSummaryFormat = _createCustomSummaryFormatDraft(
+        widget.customSummaryFormats,
       );
       _editingNewSummaryFormat = true;
     });
@@ -4291,60 +4370,93 @@ class _GuideOverlay extends StatefulWidget {
 class _GuideOverlayState extends State<_GuideOverlay> {
   static const _sections = [
     _GuideSection(
-      title: '計測を進める',
-      summary: '開始・Split・停止・再開の流れ',
+      title: '計測を始める・区切る',
+      summary: '開始・停止・再開と Split の基本操作',
       details: [
-        'メインボタンで開始、停止、再開を切り替えます。',
-        'Split ボタンで現在の作業区切りを閉じて、次の Split を作れます。',
-        '停止中に再開すると、同じセッションを続きから計測します。',
+        '開始で計測を始め、停止と再開で同じセッションの計測を続けます。',
+        '計測中に Split を押すと現在の区切りを確定し、次の Split を作成します。',
+        '中央の全体経過と左側のリングで、セッション全体の経過時間を確認できます。',
       ],
     ),
     _GuideSection(
-      title: 'セッションを切り替える',
-      summary: '日ごとや作業単位で計測先を分ける',
+      title: 'セッションを管理する',
+      summary: '切り替え・追加・名前変更・整理',
       details: [
-        '上部のセッション一覧から、今計測したいセッションへ切り替えられます。',
-        'プラスボタンで新しいセッションを追加できます。',
-        '不要なセッションは削除、現在の内容だけリセットも可能です。',
+        '上部の一覧または三点ボタンから、表示するセッションを切り替えられます。',
+        '表示中のセッション名をクリックすると、名前を編集できます。',
+        'プラスボタンで新しいセッションを追加します。追加や切り替えを行うと、計測中のセッションは停止します。',
+        'リセットは現在の内容だけを初期化し、削除はセッション自体を取り除きます。どちらも実行前に確認が表示されます。',
       ],
     ),
     _GuideSection(
-      title: 'Split を選ぶ',
-      summary: 'ラジオ配分とチェック配分を切り替える',
+      title: 'Split を編集・配分する',
+      summary: '名前の編集と時間の割り当て方法',
       details: [
-        'ラジオ配分では、選択中の Split へ時間が入ります。',
-        'チェック配分では、チェックが付いた Split 群へ時間を分配できます。',
-        'モード切替はサマリーボタン左のアイコンから行えます。',
+        'Split 名をクリックすると、その場で名前を編集できます。',
+        'ラジオ配分では、選択中の Split に経過時間が加算されます。',
+        'チェック配分では、チェックした Split に経過秒を順番に分配します。複数の Split に同じ時間は重複加算されません。',
+        '配分モードは、サマリーボタン左のアイコンから切り替えます。',
       ],
     ),
     _GuideSection(
-      title: 'メモとサマリーを使う',
-      summary: 'Split ごとのメモと全体サマリーを確認',
+      title: 'メモを記録する',
+      summary: 'Split ごとの作業内容を残す',
       details: [
-        '各 Split のメモアイコンから内容を記録できます。',
-        'サマリーボタンで、セッション全体の一覧テキストを確認できます。',
-        'サマリーはコピーできるので、日報や振り返りへ流用しやすいです。',
-        'お問い合わせは案内や設定から開けて、そのままメール送信画面へ進めます。',
+        '各 Split のメモアイコンから、Split 名とメモを編集できます。',
+        'メモ画面には、その Split に割り当てられた経過時間も表示されます。',
+        '閉じるボタンで編集内容を確定し、端末内へ保存します。',
+      ],
+    ),
+    _GuideSection(
+      title: 'サマリーを作成する',
+      summary: '作業記録を整えてコピーする',
+      details: [
+        'サマリーボタンで、表示中のセッションから一覧テキストを作成します。',
+        'サマリー本文はコピー前に直接編集できるため、共有先に合わせて手直しできます。',
+        '上部の表示形式ボタンで書式を、時間ボタンで小数時間と時間・分表示を切り替えられます。',
+        'コピーボタンで、表示中のサマリーをクリップボードへコピーします。',
+      ],
+    ),
+    _GuideSection(
+      title: 'サマリー表示をカスタマイズする',
+      summary: 'タイトル・時間・メモの書式と置換ルール',
+      details: [
+        'サマリーの表示形式ボタンまたは設定から、標準・テンプ・作成済みのカスタムを選べます。',
+        'カスタムでは {title}・{time}・{memo} を使い、各項目の前後や改行を自由に設定できます。',
+        '置換ルールは完全一致する文字列を対象に上から順番に適用し、{match} で一致した文字列を再利用できます。',
+        '左側の入力例は編集可能で、右側の変更がサマリープレビューへすぐ反映されます。',
+        '新規作成はサマリーと設定のどちらからでも行えます。名前変更・編集・削除は設定から行います。',
       ],
     ),
     _GuideSection(
       title: 'ショートカットを使う',
-      summary: 'Popover を開かずに主要操作を実行',
+      summary: 'SplitLog を開かずに主要操作を実行',
       details: [
         '⌘⌃S: Split / ⌘⌃X: 停止 / ⌘⌃R: 再開',
-        '⌘⌃V: Popover の表示切替 / ⌘⌃M: 現在選択中 Split のメモを開く',
-        '⌘⌃1...9 / 0 / ↑↓ で Split 選択や移動も行えます。',
+        '⌘⌃V: 表示切替 / ⌘⌃M: 選択中の Split メモを開く',
+        '⌘⌃1...9: 指定位置を選択 / ⌘⌃0: 最新を選択 / ⌘⌃↑↓: 選択位置を移動',
+        'グローバルショートカットは、設定からまとめてオン・オフできます。',
       ],
     ),
     _GuideSection(
-      title: '表示や初期値を整える',
-      summary: 'テーマ、リング周期、初期モード、ロックなどの調整',
+      title: '表示とアプリ動作を整える',
+      summary: 'テーマ・リング周期・初期モード・ロック',
       details: [
-        '設定からテーマカラーやリング周期を変更できます。',
-        '新規セッションのデフォルト配分モードも設定できます。',
+        '設定からテーマカラー、モノクロ表示、リング周期、新規セッションの初期配分モードを変更できます。',
         '円グラフ左上の小さい表示からもリング周期の設定を開けます。',
-        'タイトル右の南京錠アイコンをオンにすると、Popover 外をクリックしても閉じなくなります。',
-        'サマリーの表示形式やストレージ初期化もここから行います。',
+        '南京錠をオンにすると SplitLog を前面に保ち、ほかの場所をクリックしても閉じなくなります。オフの場合は外側のクリックで閉じます。',
+        'ウィンドウを閉じてもアプリは常駐します。完全に終了する場合は、設定の「SplitLogを終了」を使います。',
+        'ヘッダーの「?」または設定の案内から、操作説明とお問い合わせを開けます。',
+      ],
+    ),
+    _GuideSection(
+      title: 'データを移行・管理する',
+      summary: 'ローカル保存・旧版インポート・初期化',
+      details: [
+        'セッションと設定はこの端末内に保存され、ほかの端末とは自動同期されません。',
+        '旧macOS版のデータは起動時に自動検知して確認後に取り込むか、設定から sessions.json を選んで手動で取り込めます。',
+        '設定のストレージ項目から、セッション情報または Split データだけを削除できます。',
+        '設定だけのリセットと全データの初期化も選べます。削除や初期化は確認後に実行されます。',
       ],
     ),
   ];
@@ -4378,7 +4490,7 @@ class _GuideOverlayState extends State<_GuideOverlay> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'SplitLog でできることを順番に確認できます。',
+                      '項目をクリックすると、詳しい説明が開きます。',
                       style: TextStyle(
                         fontSize: 11,
                         color: widget.colors.secondaryText,
@@ -4398,6 +4510,7 @@ class _GuideOverlayState extends State<_GuideOverlay> {
           SizedBox(
             height: 272,
             child: ListView.separated(
+              key: const ValueKey<String>('guide-sections-scroll-view'),
               padding: EdgeInsets.zero,
               itemCount: _sections.length,
               separatorBuilder: (_, _) => const SizedBox(height: 10),
@@ -5038,12 +5151,14 @@ class _SummaryFormatPill extends StatelessWidget {
     required this.selectedFormatId,
     required this.customFormats,
     required this.onSelected,
+    required this.onAdd,
   });
 
   final _DesktopPreviewColors colors;
   final String selectedFormatId;
   final List<SummaryFormatDefinition> customFormats;
   final ValueChanged<String> onSelected;
+  final VoidCallback onAdd;
 
   @override
   Widget build(BuildContext context) {
@@ -5052,8 +5167,15 @@ class _SummaryFormatPill extends StatelessWidget {
       key: const ValueKey<String>('summary-format-menu'),
       tooltip: 'サマリー表示フォーマット',
       initialValue: selected.id,
-      onSelected: onSelected,
-      itemBuilder: (context) => _summaryFormatMenuItems(customFormats),
+      onSelected: (value) {
+        if (value == '_add') {
+          onAdd();
+        } else {
+          onSelected(value);
+        }
+      },
+      itemBuilder: (context) =>
+          _summaryFormatMenuItems(customFormats, includeAdd: true),
       child: Container(
         height: 20,
         padding: const EdgeInsets.symmetric(horizontal: 6),
