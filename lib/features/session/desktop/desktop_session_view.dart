@@ -24,7 +24,23 @@ enum _PreviewOverlay {
   legacyImportMissing,
 }
 
-enum _SummaryTimeFormat { decimalHours, hourMinute }
+enum _SummaryTimeFormat {
+  decimalHours,
+  decimalHoursPrecise,
+  hourMinute;
+
+  String get optionLabel => switch (this) {
+    _SummaryTimeFormat.hourMinute => '時間',
+    _SummaryTimeFormat.decimalHours => 'h（小数第1位まで）',
+    _SummaryTimeFormat.decimalHoursPrecise => 'h（小数第2位まで）',
+  };
+}
+
+const _summaryTimeFormatOptions = [
+  _SummaryTimeFormat.hourMinute,
+  _SummaryTimeFormat.decimalHours,
+  _SummaryTimeFormat.decimalHoursPrecise,
+];
 
 enum _ToastStyle { success, error }
 
@@ -151,9 +167,9 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
   int _lapListScrollToken = 0;
   String? _memoLapId;
   String _memoElapsedText = '00:00:00';
-  int _ringHoursPerCycle = 3;
+  int _ringHoursPerCycle = defaultRingHoursPerCycle;
   SplitAccumulationMode _defaultSplitMode = SplitAccumulationMode.radio;
-  String _selectedSummaryFormatId = standardSummaryFormatId;
+  String _selectedSummaryFormatId = defaultSummaryFormatId;
   List<SummaryFormatDefinition> _customSummaryFormats = [];
   _SummaryTimeFormat _summaryTimeFormat = _SummaryTimeFormat.decimalHours;
   bool _shortcutsEnabled = true;
@@ -684,9 +700,9 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
   void _resetSettings({bool showFeedback = true}) {
     setState(() {
       _isMonochrome = false;
-      _ringHoursPerCycle = 3;
+      _ringHoursPerCycle = defaultRingHoursPerCycle;
       _defaultSplitMode = SplitAccumulationMode.radio;
-      _selectedSummaryFormatId = standardSummaryFormatId;
+      _selectedSummaryFormatId = defaultSummaryFormatId;
       _customSummaryFormats = [];
       _summaryTimeFormat = _SummaryTimeFormat.decimalHours;
       _shortcutsEnabled = true;
@@ -812,7 +828,7 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
           if (format.id != formatId) format,
       ];
       if (_selectedSummaryFormatId == formatId) {
-        _selectedSummaryFormatId = standardSummaryFormatId;
+        _selectedSummaryFormatId = defaultSummaryFormatId;
       }
     });
     _persistState();
@@ -825,14 +841,11 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
     _persistState();
   }
 
-  void _toggleSummaryTimeFormat() {
-    final nextFormat = _summaryTimeFormat == _SummaryTimeFormat.decimalHours
-        ? _SummaryTimeFormat.hourMinute
-        : _SummaryTimeFormat.decimalHours;
+  void _setSummaryTimeFormatFromSummary(_SummaryTimeFormat format) {
     final now = DateTime.now();
-    final summary = _currentSessionSummary(at: now, timeFormat: nextFormat);
+    final summary = _currentSessionSummary(at: now, timeFormat: format);
     setState(() {
-      _summaryTimeFormat = nextFormat;
+      _summaryTimeFormat = format;
       _clock = now;
     });
     _replaceSummaryDraft(summary.text);
@@ -1194,7 +1207,8 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
                 onDeleteCustomSummaryFormat: _deleteCustomSummaryFormat,
                 onSetSummaryTimeFormat: _setSummaryTimeFormat,
                 onSetSummaryFormatFromSummary: _setSummaryFormatFromSummary,
-                onToggleSummaryTimeFormat: _toggleSummaryTimeFormat,
+                onSetSummaryTimeFormatFromSummary:
+                    _setSummaryTimeFormatFromSummary,
                 onCopySummary: () => unawaited(_copySummary()),
                 onSetShortcutsEnabled: _setShortcutsEnabled,
                 onRequestLegacyImport: () =>
@@ -2232,7 +2246,7 @@ class _OverlayLayer extends StatelessWidget {
     required this.onDeleteCustomSummaryFormat,
     required this.onSetSummaryTimeFormat,
     required this.onSetSummaryFormatFromSummary,
-    required this.onToggleSummaryTimeFormat,
+    required this.onSetSummaryTimeFormatFromSummary,
     required this.onCopySummary,
     required this.onSetShortcutsEnabled,
     required this.onRequestLegacyImport,
@@ -2280,7 +2294,7 @@ class _OverlayLayer extends StatelessWidget {
   final ValueChanged<String> onDeleteCustomSummaryFormat;
   final ValueChanged<_SummaryTimeFormat> onSetSummaryTimeFormat;
   final ValueChanged<String> onSetSummaryFormatFromSummary;
-  final VoidCallback onToggleSummaryTimeFormat;
+  final ValueChanged<_SummaryTimeFormat> onSetSummaryTimeFormatFromSummary;
   final VoidCallback onCopySummary;
   final ValueChanged<bool> onSetShortcutsEnabled;
   final VoidCallback onRequestLegacyImport;
@@ -2375,10 +2389,11 @@ class _OverlayLayer extends StatelessWidget {
               summary: summary,
               selectedSummaryFormatId: selectedSummaryFormatId,
               customSummaryFormats: customSummaryFormats,
+              selectedTimeFormat: summaryTimeFormat,
               summaryController: summaryTextController,
               onSelectSummaryFormat: onSetSummaryFormatFromSummary,
               onSaveCustomSummaryFormat: onSaveCustomSummaryFormatFromSummary,
-              onToggleTimeFormat: onToggleSummaryTimeFormat,
+              onSelectTimeFormat: onSetSummaryTimeFormatFromSummary,
               onCopy: onCopySummary,
               onClose: onClose,
             ),
@@ -2770,10 +2785,11 @@ class _SummaryOverlay extends StatefulWidget {
     required this.summary,
     required this.selectedSummaryFormatId,
     required this.customSummaryFormats,
+    required this.selectedTimeFormat,
     required this.summaryController,
     required this.onSelectSummaryFormat,
     required this.onSaveCustomSummaryFormat,
-    required this.onToggleTimeFormat,
+    required this.onSelectTimeFormat,
     required this.onCopy,
     required this.onClose,
   });
@@ -2782,10 +2798,11 @@ class _SummaryOverlay extends StatefulWidget {
   final _SessionSummary summary;
   final String selectedSummaryFormatId;
   final List<SummaryFormatDefinition> customSummaryFormats;
+  final _SummaryTimeFormat selectedTimeFormat;
   final TextEditingController summaryController;
   final ValueChanged<String> onSelectSummaryFormat;
   final ValueChanged<SummaryFormatDefinition> onSaveCustomSummaryFormat;
-  final VoidCallback onToggleTimeFormat;
+  final ValueChanged<_SummaryTimeFormat> onSelectTimeFormat;
   final VoidCallback onCopy;
   final VoidCallback onClose;
 
@@ -2841,11 +2858,12 @@ class _SummaryOverlayState extends State<_SummaryOverlay> {
                 onAdd: _beginNewSummaryFormat,
               ),
               const SizedBox(width: 5),
-              _SmallPill(
+              _SummaryTimeFormatMenu(
                 colors: widget.colors,
-                label: widget.summary.timeFormatLabel,
-                tooltip: '時間表示形式を切り替え',
-                onPressed: widget.onToggleTimeFormat,
+                selectedFormat: widget.selectedTimeFormat,
+                previewLabel: widget.summary.timeFormatLabel,
+                compact: true,
+                onSelected: widget.onSelectTimeFormat,
               ),
               const SizedBox(width: 8),
               Expanded(
@@ -3114,14 +3132,11 @@ class _SettingsOverlay extends StatefulWidget {
                       _SettingsRow(
                         colors: colors,
                         title: '時間表示形式',
-                        trailing: _MenuValuePill(
+                        trailing: _SummaryTimeFormatMenu(
                           colors: colors,
-                          label: summaryTimePreviewLabel,
-                          onPressed: () => onSetSummaryTimeFormat(
-                            summaryTimeFormat == _SummaryTimeFormat.decimalHours
-                                ? _SummaryTimeFormat.hourMinute
-                                : _SummaryTimeFormat.decimalHours,
-                          ),
+                          selectedFormat: summaryTimeFormat,
+                          previewLabel: summaryTimePreviewLabel,
+                          onSelected: onSetSummaryTimeFormat,
                         ),
                       ),
                     ],
@@ -3447,7 +3462,7 @@ class _SummaryFormatEditorState extends State<_SummaryFormatEditor> {
     _timeTemplateController = _controller(widget.initialFormat.timeTemplate);
     _memoTemplateController = _controller(widget.initialFormat.memoTemplate);
     _exampleTitleController = _controller('API実装');
-    _exampleTimeController = _controller('1.1h');
+    _exampleTimeController = _controller('1.10h');
     _exampleMemoController = _controller(
       '午前中に資料作成を進めました。\\n確認が必要な箇所を整理しました。\n'
       '午後は打ち合わせの内容をまとめます。',
@@ -4413,7 +4428,7 @@ class _GuideOverlayState extends State<_GuideOverlay> {
       details: [
         'サマリーボタンで、表示中のセッションから一覧テキストを作成します。',
         'サマリー本文はコピー前に直接編集できるため、共有先に合わせて手直しできます。',
-        '上部の表示形式ボタンで書式を、時間ボタンで小数時間と時間・分表示を切り替えられます。',
+        '上部の表示形式ボタンで書式を、時間ボタンで時間・h（小数第1位まで）・h（小数第2位まで）を選べます。',
         'コピーボタンで、表示中のサマリーをクリップボードへコピーします。',
       ],
     ),
@@ -4421,7 +4436,7 @@ class _GuideOverlayState extends State<_GuideOverlay> {
       title: 'サマリー表示をカスタマイズする',
       summary: 'タイトル・時間・メモの書式と置換ルール',
       details: [
-        'サマリーの表示形式ボタンまたは設定から、標準・テンプ・作成済みのカスタムを選べます。',
+        'サマリーの表示形式ボタンまたは設定から、標準・テンプレート・作成済みのカスタムを選べます。',
         'カスタムでは {title}・{time}・{memo} を使い、各項目の前後や改行を自由に設定できます。',
         '置換ルールは完全一致する文字列を対象に上から順番に適用し、{match} で一致した文字列を再利用できます。',
         '左側の入力例は編集可能で、右側の変更がサマリープレビューへすぐ反映されます。',
@@ -5071,40 +5086,88 @@ class _SmallPill extends StatelessWidget {
     required this.colors,
     required this.label,
     required this.tooltip,
-    required this.onPressed,
   });
 
   final _DesktopPreviewColors colors;
   final String label;
   final String tooltip;
-  final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
     return Tooltip(
       message: tooltip,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(999),
-        onTap: onPressed,
-        child: Container(
-          height: 20,
-          padding: const EdgeInsets.symmetric(horizontal: 6),
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: colors.accent.withValues(alpha: 0.16),
-            border: Border.all(color: colors.accent.withValues(alpha: 0.45)),
-            borderRadius: BorderRadius.circular(999),
-          ),
-          child: Text(
-            label,
-            style: TextStyle(
-              color: colors.accent,
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
+      child: Container(
+        height: 20,
+        padding: const EdgeInsets.symmetric(horizontal: 6),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: colors.accent.withValues(alpha: 0.16),
+          border: Border.all(color: colors.accent.withValues(alpha: 0.45)),
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                color: colors.accent,
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+              ),
             ),
-          ),
+            const SizedBox(width: 1),
+            Icon(Icons.arrow_drop_down, size: 11, color: colors.accent),
+          ],
         ),
       ),
+    );
+  }
+}
+
+class _SummaryTimeFormatMenu extends StatelessWidget {
+  const _SummaryTimeFormatMenu({
+    required this.colors,
+    required this.selectedFormat,
+    required this.previewLabel,
+    required this.onSelected,
+    this.compact = false,
+  });
+
+  final _DesktopPreviewColors colors;
+  final _SummaryTimeFormat selectedFormat;
+  final String previewLabel;
+  final ValueChanged<_SummaryTimeFormat> onSelected;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<_SummaryTimeFormat>(
+      key: ValueKey<String>(
+        compact
+            ? 'summary-time-format-menu'
+            : 'settings-summary-time-format-menu',
+      ),
+      tooltip: '時間表示形式を選択',
+      initialValue: selectedFormat,
+      onSelected: onSelected,
+      itemBuilder: (context) => [
+        for (final format in _summaryTimeFormatOptions)
+          PopupMenuItem<_SummaryTimeFormat>(
+            value: format,
+            child: Text(
+              format.optionLabel,
+              style: const TextStyle(fontSize: 12),
+            ),
+          ),
+      ],
+      child: compact
+          ? _SmallPill(
+              colors: colors,
+              label: previewLabel,
+              tooltip: '時間表示形式を選択',
+            )
+          : _MenuValuePill(colors: colors, label: previewLabel),
     );
   }
 }
@@ -5214,7 +5277,10 @@ List<PopupMenuEntry<String>> _summaryFormatMenuItems(
       PopupMenuItem<String>(
         value: format.id,
         height: 30,
-        child: Text(format.name, style: const TextStyle(fontSize: 12)),
+        child: Text(
+          format.id == templateSummaryFormatId ? 'テンプレート' : format.name,
+          style: const TextStyle(fontSize: 12),
+        ),
       ),
     if (customFormats.isNotEmpty) const PopupMenuDivider(height: 8),
     for (final format in customFormats)
@@ -5454,38 +5520,29 @@ class _InlineStepperValue extends StatelessWidget {
 }
 
 class _MenuValuePill extends StatelessWidget {
-  const _MenuValuePill({
-    required this.colors,
-    required this.label,
-    required this.onPressed,
-  });
+  const _MenuValuePill({required this.colors, required this.label});
 
   final _DesktopPreviewColors colors;
   final String label;
-  final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(8),
-      onTap: onPressed,
-      child: Container(
-        height: 24,
-        padding: const EdgeInsets.symmetric(horizontal: 9),
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: colors.buttonBackground,
-          border: Border.all(color: colors.buttonBorder),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(label, style: const TextStyle(fontSize: 12)),
-            const SizedBox(width: 4),
-            Icon(Icons.unfold_more, size: 14, color: colors.secondaryText),
-          ],
-        ),
+    return Container(
+      height: 24,
+      padding: const EdgeInsets.symmetric(horizontal: 9),
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: colors.buttonBackground,
+        border: Border.all(color: colors.buttonBorder),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 12)),
+          const SizedBox(width: 4),
+          Icon(Icons.arrow_drop_down, size: 14, color: colors.secondaryText),
+        ],
       ),
     );
   }
@@ -6065,6 +6122,8 @@ String _formatSummaryDuration(int seconds, _SummaryTimeFormat format) {
   switch (format) {
     case _SummaryTimeFormat.decimalHours:
       return '${(safeSeconds / 3600).toStringAsFixed(1)}h';
+    case _SummaryTimeFormat.decimalHoursPrecise:
+      return '${(safeSeconds / 3600).toStringAsFixed(2)}h';
     case _SummaryTimeFormat.hourMinute:
       final totalMinutes = (safeSeconds + 30) ~/ 60;
       final hours = totalMinutes ~/ 60;
