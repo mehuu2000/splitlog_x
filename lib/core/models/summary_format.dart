@@ -120,7 +120,7 @@ const standardSummaryFormat = SummaryFormatDefinition(
 
 const templateSummaryFormat = SummaryFormatDefinition(
   id: templateSummaryFormatId,
-  name: 'テンプ',
+  name: 'テンプレ',
   titleTemplate: '[ {title} ]',
   timeTemplate: '({time})',
   memoTemplate: '   ・{memo}',
