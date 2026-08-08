@@ -71,12 +71,55 @@ void main() {
         lessThan(0.01),
       );
 
+      final sessionTextTransform = find.descendant(
+        of: find.byKey(const ValueKey<String>('session-selector-chip-0')),
+        matching: find.byType(Transform),
+      );
+      expect(sessionTextTransform, findsOneWidget);
+      expect(
+        tester
+            .widget<Transform>(sessionTextTransform)
+            .transform
+            .getTranslation()
+            .y,
+        -1,
+      );
+
       await tester.tap(find.byTooltip('設定'));
       await tester.pump();
 
       expect(tester.widget<Text>(find.text('カラー')).style!.height, 1);
       expect(tester.widget<Text>(find.text('テンプレ')).style!.height, 1);
       expect(tester.widget<Text>(find.text('閉じる')).style!.height, 1);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('optically aligns Windows confirmation labels', (
+    WidgetTester tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    try {
+      await _pumpApp(tester, storage);
+
+      await tester.tap(find.byTooltip('リセット'));
+      await tester.pump();
+
+      for (final key in const [
+        'confirmation-cancel-button',
+        'confirmation-confirm-button',
+      ]) {
+        final transform = find.descendant(
+          of: find.byKey(ValueKey<String>(key)),
+          matching: find.byType(Transform),
+        );
+        expect(transform, findsOneWidget);
+        expect(
+          tester.widget<Transform>(transform).transform.getTranslation().y,
+          -1,
+        );
+      }
     } finally {
       debugDefaultTargetPlatformOverride = null;
     }
@@ -95,6 +138,13 @@ void main() {
       );
       expect(
         find.byKey(const ValueKey<String>('windows-even-text-leading')),
+        findsNothing,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey<String>('session-selector-chip-0')),
+          matching: find.byType(Transform),
+        ),
         findsNothing,
       );
     } finally {

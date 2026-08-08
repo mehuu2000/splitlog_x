@@ -46,6 +46,16 @@ const _summaryTimeFormatOptions = [
 double? get _compactControlTextHeight =>
     !kIsWeb && defaultTargetPlatform == TargetPlatform.windows ? 1 : null;
 
+Widget _withWindowsOpticalTextAlignment({
+  required Widget child,
+  bool enabled = true,
+}) {
+  if (!enabled || kIsWeb || defaultTargetPlatform != TargetPlatform.windows) {
+    return child;
+  }
+  return Transform.translate(offset: const Offset(0, -1), child: child);
+}
+
 enum _ToastStyle { success, error }
 
 enum _SettingsStorageAction {
@@ -1455,22 +1465,27 @@ class _SessionSelectorState extends State<_SessionSelector> {
                 return InkWell(
                   borderRadius: BorderRadius.circular(999),
                   onTap: () => onSelect(index),
-                  child: Container(
+                  child: SizedBox(
                     key: ValueKey<String>('session-selector-chip-$index'),
                     width: 74,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: isSelected
-                          ? colors.selectedChip
-                          : Colors.transparent,
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Text(
-                      session,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 11,
-                        height: _compactControlTextHeight,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? colors.selectedChip
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Center(
+                        child: _withWindowsOpticalTextAlignment(
+                          child: Text(
+                            session,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 11,
+                              height: _compactControlTextHeight,
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -2641,6 +2656,7 @@ class _ConfirmationOverlay extends StatelessWidget {
                     colors: colors,
                     label: 'キャンセル',
                     onPressed: onClose,
+                    opticallyAlignTextOnWindows: true,
                   ),
                   const SizedBox(width: 8),
                 ],
@@ -2651,6 +2667,7 @@ class _ConfirmationOverlay extends StatelessWidget {
                   onPressed: onConfirm,
                   prominent: true,
                   destructive: destructive,
+                  opticallyAlignTextOnWindows: true,
                 ),
               ],
             ),
@@ -4798,6 +4815,7 @@ class _CompactDialogButton extends StatelessWidget {
     required this.onPressed,
     this.prominent = false,
     this.destructive = false,
+    this.opticallyAlignTextOnWindows = false,
   });
 
   final _DesktopPreviewColors colors;
@@ -4805,6 +4823,7 @@ class _CompactDialogButton extends StatelessWidget {
   final VoidCallback onPressed;
   final bool prominent;
   final bool destructive;
+  final bool opticallyAlignTextOnWindows;
 
   @override
   Widget build(BuildContext context) {
@@ -4829,13 +4848,16 @@ class _CompactDialogButton extends StatelessWidget {
           border: Border.all(color: border),
           borderRadius: BorderRadius.circular(7),
         ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: foreground,
-            fontSize: 12,
-            height: _compactControlTextHeight,
-            fontWeight: FontWeight.w600,
+        child: _withWindowsOpticalTextAlignment(
+          enabled: opticallyAlignTextOnWindows,
+          child: Text(
+            label,
+            style: TextStyle(
+              color: foreground,
+              fontSize: 12,
+              height: _compactControlTextHeight,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
       ),
