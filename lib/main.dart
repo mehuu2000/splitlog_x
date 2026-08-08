@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'core/services/session_storage_service.dart';
@@ -14,23 +15,31 @@ class SplitLogApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isWindows =
+        !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
+    final baseTheme = ThemeData(
+      colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF2F6FED)),
+      useMaterial3: true,
+      inputDecorationTheme: const InputDecorationThemeData(
+        focusColor: Colors.transparent,
+        hoverColor: Colors.transparent,
+      ),
+      fontFamily: isWindows ? 'Inter' : null,
+      fontFamilyFallback: isWindows
+          ? const [
+              'Noto Sans JP',
+              'Yu Gothic UI',
+              'Meiryo UI',
+              'Meiryo',
+              'sans-serif',
+            ]
+          : const ['Hiragino Sans', 'Yu Gothic', 'Meiryo', 'sans-serif'],
+    );
+
     return MaterialApp(
       title: 'SplitLog',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF2F6FED)),
-        useMaterial3: true,
-        inputDecorationTheme: const InputDecorationThemeData(
-          focusColor: Colors.transparent,
-          hoverColor: Colors.transparent,
-        ),
-        fontFamilyFallback: const [
-          'Hiragino Sans',
-          'Yu Gothic',
-          'Meiryo',
-          'sans-serif',
-        ],
-      ),
+      theme: baseTheme,
       home: SplitLogDesktopPreviewPage(storage: storage),
     );
   }

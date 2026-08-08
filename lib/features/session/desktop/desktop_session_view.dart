@@ -5043,6 +5043,9 @@ class _TextActionButton extends StatelessWidget {
             style: TextStyle(
               color: foreground,
               fontSize: 12,
+              height: defaultTargetPlatform == TargetPlatform.windows
+                  ? 1
+                  : null,
               fontWeight: prominent ? FontWeight.w600 : FontWeight.w500,
             ),
           ),

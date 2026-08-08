@@ -34,6 +34,55 @@ void main() {
     expect(find.text('テンプレ'), findsOneWidget);
   });
 
+  testWidgets('uses bundled Windows typography and centers action labels', (
+    WidgetTester tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    try {
+      await _pumpApp(tester, storage);
+
+      final theme = Theme.of(tester.element(find.byType(Scaffold)));
+      expect(theme.textTheme.bodyMedium!.fontFamily, 'Inter');
+      expect(
+        theme.textTheme.bodyMedium!.fontFamilyFallback,
+        contains('Noto Sans JP'),
+      );
+      expect(theme.textTheme.bodyMedium!.fontWeight, FontWeight.w400);
+
+      final splitLabel = find.text('Split');
+      final splitButton = find.ancestor(
+        of: splitLabel,
+        matching: find.byType(InkWell),
+      );
+      final splitText = tester.widget<Text>(splitLabel);
+
+      expect(splitText.style!.height, 1);
+      expect(
+        (tester.getCenter(splitLabel).dy - tester.getCenter(splitButton).dy)
+            .abs(),
+        lessThan(0.01),
+      );
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('keeps system typography on macOS', (WidgetTester tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    try {
+      await _pumpApp(tester, storage);
+
+      final theme = Theme.of(tester.element(find.byType(Scaffold)));
+      expect(theme.textTheme.bodyMedium!.fontFamily, isNot('Inter'));
+      expect(
+        theme.textTheme.bodyMedium!.fontFamilyFallback,
+        contains('Hiragino Sans'),
+      );
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
   testWidgets('summary time supports all three display formats', (
     WidgetTester tester,
   ) async {
