@@ -6,6 +6,12 @@
 
 既存のSwift/AppKit版は直接変更しない。Flutter版は `/Users/hamada/projects/splitlog_x` の独立プロジェクトとして開発する。
 
+現在の進捗:
+
+- Step 1 macOS版v1: 完了
+- Step 2 Windows版v1: 完了
+- Step 3 iPhone/Android版: 未着手
+
 ## 対象プラットフォーム
 
 - macOS
@@ -151,7 +157,7 @@ v1ではネットワークを使わず、端末ローカル保存のみとする
 ## 配布方針
 
 - macOS: zip/dmg配布
-- Windows: zip/msi配布
+- Windows: v1はzip配布、必要になった段階でmsi/msixを検討
 - iOS: TestFlight
 - Android: APK直接配布
 
@@ -233,7 +239,7 @@ macOS版は身内配布用のzip作成まで確認済み。Step 1は完了扱い
 
 ### Step 2
 
-Windows版を、macOS版に近いDesktop常駐アプリとして実装する。
+Windows版を、macOS版に近いDesktop常駐アプリとして実装する。Step 2は、Windows実機での動作確認と身内配布用zipの生成まで完了済み。
 
 Windows版はタスクバー常駐ではなく、画面右下のタスクトレイ/通知領域に常駐させる。macOS版のメニューバーアイコンに対応するものとして、Windowsではタスクトレイアイコンを使う。
 
@@ -252,27 +258,27 @@ Windows版はタスクバー常駐ではなく、画面右下のタスクトレ�
 
 実装ステップ:
 
-1. Step 2-1: Windows対応の棚卸し
+1. Step 2-1: Windows対応の棚卸し（完了）
    - macOS専用コード、Windowsで壊れる箇所、必要なプラグイン/APIを確認する
    - 既存Desktop UIをWindowsで共有できる範囲を確認する
    - Windowsで後回しにする機能があれば理由付きで整理する
-2. Step 2-2: Desktop共通化
+2. Step 2-2: Desktop共通化（完了）
    - UI本体とプラットフォーム依存処理を分離する
    - ファイル選択、終了、問い合わせ、ショートカット、ウィンドウ制御を抽象化する
    - macOS版の既存挙動を壊さないことを優先する
-3. Step 2-3: Windows通常ウィンドウでの起動確認
+3. Step 2-3: Windows通常ウィンドウでの起動確認（完了）
    - まずタスクトレイ常駐なしで、Windows上で画面表示と基本操作を確認する
    - セッション操作、タイマー、Split編集、メモ、サマリー、設定を確認する
-4. Step 2-4: Windowsタスクトレイ常駐
+4. Step 2-4: Windowsタスクトレイ常駐（完了）
    - タスクトレイアイコンを追加する
    - アイコンクリックで表示/非表示を切り替える
    - 閉じるボタンで非表示にする
    - トレイメニューまたは設定から明示的に終了できるようにする
-5. Step 2-5: Windows保存/インポート確認
+5. Step 2-5: Windows保存/インポート確認（完了）
    - Windowsのローカル保存先に `sessions.json` が保存されることを確認する
    - 手動インポートで旧 `sessions.json` を読み込めることを確認する
    - macOS版の保存/インポート挙動が変わっていないことを確認する
-6. Step 2-6: Windows配布準備
+6. Step 2-6: Windows配布準備（完了）
    - Windows版の表示名とアイコンを確認する
    - まずzip配布できる形を作る
    - 必要になった段階でmsi/msix配布を検討する
@@ -286,7 +292,19 @@ Step 2の完了条件:
 - 手動インポートが動作する
 - zipで身内確認用に配布できる
 
-### Step 2以降
+実装結果:
+
+- タスクトレイアイコンのクリックでウィンドウを表示・非表示にできる
+- ウィンドウをタスクトレイアイコン付近に表示し、外側クリックで自動的に隠せる
+- ロック時は前面固定し、ウィンドウを閉じてもアプリを終了しない
+- トレイメニューと設定から、保存完了を待って明示的に終了できる
+- 二重起動を防止し、起動済みの場合は既存ウィンドウを表示する
+- `Ctrl+Alt`を使うWindows向けグローバルショートカットを実装した
+- `%LOCALAPPDATA%\SplitLog\sessions.json`への保存と、旧データの手動インポートを確認した
+- macOS版と共通のDesktop UIを使い、WindowsのみInter/Noto Sans JPで表示差を調整した
+- Visual C++ランタイムを同梱した`SplitLog-Windows-v1.0.0.zip`を作成し、内容とSHA-256を確認した
+
+### Step 3以降
 
 1. Mobile UIの縦長レイアウトを作る
 2. iPhone/Android向けの状態管理と操作を接続する

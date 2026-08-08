@@ -4,7 +4,7 @@
 
 この文書は、SplitLogの開発環境を準備し、実装・検証を行う開発者向けのガイドです。
 
-現在完成しているのはmacOS版v1です。Windows、iPhone、AndroidはFlutterプロジェクトのみ生成済みで、プラットフォーム固有処理と画面の実装は今後行います。
+現在完成しているのはmacOS版v1とWindows版v1です。両Desktop版は共通のFlutter UIとコアロジックを使い、常駐・ウィンドウ・ショートカットなどをOS別のネイティブ層で実装しています。iPhone、AndroidはFlutterプロジェクトのみ生成済みで、モバイル向け画面とプラットフォーム固有処理は今後実装します。
 
 ## 必要な環境
 
@@ -65,6 +65,12 @@ macOS:
 flutter run -d macos
 ```
 
+Windows（PowerShell）:
+
+```powershell
+flutter run -d windows
+```
+
 実行中のターミナルでは、次のキーを使用できます。
 
 | キー | 操作 |
@@ -73,7 +79,7 @@ flutter run -d macos
 | `R` | ホットリスタート |
 | `q` | アプリを終了 |
 
-ネイティブのSwiftコード、アプリアイコン、entitlementsなどを変更した場合は、ホットリロードでは反映されません。実行中のアプリを終了してから再ビルドしてください。
+ネイティブのSwift/C++コード、アプリアイコン、entitlements、Windowsリソースなどを変更した場合は、ホットリロードでは反映されません。実行中のアプリを終了してから再ビルドしてください。
 
 ## プロジェクト構成
 
@@ -96,6 +102,12 @@ macos/Runner/
   AppDelegate.swift
   MainFlutterWindow.swift
 
+windows/runner/
+  flutter_window.cpp
+  flutter_window.h
+  main.cpp
+  resources/
+
 test/
   core/
   widget_test.dart
@@ -110,6 +122,8 @@ test/
 | `lib/core/services/session_storage_service.dart` | JSON保存、復元、旧データ移行 |
 | `lib/features/session/desktop` | デスクトップ版UIと画面上の操作 |
 | `macos/Runner` | メニューバー、ウィンドウ、ショートカットなどのmacOS処理 |
+| `windows/runner` | タスクトレイ、ウィンドウ、ショートカットなどのWindows処理 |
+| `assets/fonts` | Windows版で使用するInter、Noto Sans JPとライセンス |
 | `test` | コアロジック、保存、主要UI操作の回帰テスト |
 
 UIと共有可能なロジックはDartで実装し、OSに依存する常駐・ウィンドウ・ファイル選択などは各プラットフォームのネイティブ層へ閉じ込めます。
@@ -137,6 +151,14 @@ macOSの現在の保存先:
 ~/Library/Containers/com.example.splitlogx/Data/Library/Application Support/SplitLog_x/sessions.json
 ```
 
+Windowsの現在の保存先:
+
+```text
+%LOCALAPPDATA%\SplitLog\sessions.json
+```
+
+`LOCALAPPDATA`を取得できない場合のみ、`%APPDATA%\SplitLog\sessions.json`へフォールバックします。データはアプリの配布フォルダとは別に保存されるため、ZIPを展開し直しても通常は保持されます。
+
 保存時は次の順番で処理します。
 
 1. 保存要求をキューへ追加する
@@ -156,15 +178,15 @@ macOSの現在の保存先:
 - 検知しても自動取り込みはせず、ユーザー確認を挟む
 - 設定画面から旧データの検知を再実行できる
 - ファイル選択ダイアログから`sessions.json`を手動指定できる
-- Windowsでは自動検知を行わず、手動指定のみ対応する予定
+- Windowsでは自動検知を行わず、ファイル選択ダイアログによる手動指定に対応する
 
 移行処理を変更するときは、現行JSONの読み込みと旧JSONの変換を混同しないようにしてください。
 
-## macOSネイティブ連携
+## Desktopネイティブ連携
 
-DartとSwiftは`splitlog_x/app`という`MethodChannel`で連携します。
+DartとmacOSのSwift、WindowsのC++は`splitlog_x/app`という`MethodChannel`で連携します。
 
-DartからmacOS:
+Dartからネイティブ層:
 
 | メソッド | 用途 |
 | --- | --- |
@@ -174,14 +196,22 @@ DartからmacOS:
 | `chooseLegacyFile` | 旧`sessions.json`の選択と読み込み |
 | `openContact` | メールアプリを開く |
 
-macOSからDart:
+ネイティブ層からDart:
 
 | メソッド | 用途 |
 | --- | --- |
 | `shortcutAction` | グローバルショートカットの操作をDartへ通知 |
 | `prepareToQuit` | 編集確定と保存完了を待ってから終了可否を返す |
 
-設定画面、メニューバーメニュー、`⌘Q`の終了要求は、すべて`prepareToQuit`を経由して未確定の編集内容を保存します。
+macOSではメニューバー常駐とPopover風ウィンドウをSwiftで管理します。Windowsではタスクトレイ常駐、枠なしウィンドウ、トレイアイコン付近への配置、単一起動をC++で管理します。Windowsだけは日本語の表示品質を揃えるため、InterとNoto Sans JPをアプリへ同梱しています。
+
+設定画面、常駐アイコンのメニュー、macOSの`⌘Q`からの終了要求は、`prepareToQuit`またはDart側の終了準備を経由して未確定の編集内容と保存キューを確定します。
+
+## Desktopグローバルショートカット
+
+macOSでは`⌘⌃`、Windowsでは`Ctrl+Alt`を修飾キーとして、Split、停止、再開、表示切り替え、メモ表示、Split選択をネイティブ登録します。設定画面の全体オン・オフは両OSに反映されます。
+
+Windowsで他のアプリが同じキーを登録済みの場合、そのキーだけはOSによる登録に失敗する可能性があります。キー割り当ての変更はv1の対象外です。
 
 ## テストと静的解析
 
@@ -216,7 +246,8 @@ git diff --check
 - UIを変更するときは、旧SplitLogまたは現在の完成済みmacOS版を基準にする
 - コアロジック変更時は、全体時間とSplit合計の整合性を確認する
 - 保存変更時は、連続保存、読み込み中操作、終了直前保存、壊れたJSONをテストする
-- macOSネイティブ変更時は、通常のFlutterテストに加えてReleaseビルドを実行する
-- Windows・モバイル対応では、macOS版の既存挙動を回帰させない
+- Desktopネイティブ変更時は、通常のFlutterテストに加えて対象OSのReleaseビルドを実行する
+- macOSまたはWindows固有の変更時も、共有Desktop UIと他方のOSを回帰させない
+- モバイル対応時は、完成済みDesktop版の既存挙動を回帰させない
 
 Release作成の手順は[`release.md`](release.md)を参照してください。
