@@ -321,9 +321,15 @@ class SessionStorageService {
       return Directory('$home/Library/Application Support/SplitLog_x');
     }
 
-    final appData = Platform.environment['APPDATA'];
-    if (Platform.isWindows && appData != null) {
-      return Directory('$appData/SplitLog_x');
+    if (Platform.isWindows) {
+      final localAppData = Platform.environment['LOCALAPPDATA'];
+      if (localAppData != null && localAppData.isNotEmpty) {
+        return Directory('$localAppData/SplitLog');
+      }
+      final appData = Platform.environment['APPDATA'];
+      if (appData != null && appData.isNotEmpty) {
+        return Directory('$appData/SplitLog');
+      }
     }
 
     return Directory('${Directory.current.path}/.splitlog_x');

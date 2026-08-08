@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -41,6 +42,19 @@ const _summaryTimeFormatOptions = [
   _SummaryTimeFormat.decimalHours,
   _SummaryTimeFormat.decimalHoursPrecise,
 ];
+
+double? get _compactControlTextHeight =>
+    !kIsWeb && defaultTargetPlatform == TargetPlatform.windows ? 1 : null;
+
+Widget _withWindowsOpticalTextAlignment({
+  required Widget child,
+  bool enabled = true,
+}) {
+  if (!enabled || kIsWeb || defaultTargetPlatform != TargetPlatform.windows) {
+    return child;
+  }
+  return Transform.translate(offset: const Offset(0, -1), child: child);
+}
 
 enum _ToastStyle { success, error }
 
@@ -974,7 +988,7 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
         'enabled': enabled,
       });
     } on MissingPluginException {
-      // Non-macOS targets do not need desktop global shortcuts.
+      // Platforms without desktop integration ignore global shortcuts.
     }
   }
 
@@ -984,7 +998,7 @@ class _DesktopSessionViewState extends State<DesktopSessionView> {
         'locked': locked,
       });
     } on MissingPluginException {
-      // Non-macOS targets do not need popover locking.
+      // Platforms without desktop integration ignore popover locking.
     }
   }
 
@@ -1451,20 +1465,28 @@ class _SessionSelectorState extends State<_SessionSelector> {
                 return InkWell(
                   borderRadius: BorderRadius.circular(999),
                   onTap: () => onSelect(index),
-                  child: Container(
+                  child: SizedBox(
                     key: ValueKey<String>('session-selector-chip-$index'),
                     width: 74,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: isSelected
-                          ? colors.selectedChip
-                          : Colors.transparent,
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Text(
-                      session,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 11),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? colors.selectedChip
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Center(
+                        child: _withWindowsOpticalTextAlignment(
+                          child: Text(
+                            session,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 11,
+                              height: _compactControlTextHeight,
+                            ),
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                 );
@@ -1582,14 +1604,19 @@ class _SessionStatusRow extends StatelessWidget {
               children: [
                 Text(
                   '全体経過',
-                  style: TextStyle(fontSize: 13, color: colors.secondaryText),
+                  style: TextStyle(
+                    fontSize: 13,
+                    height: _compactControlTextHeight,
+                    color: colors.secondaryText,
+                  ),
                 ),
                 const SizedBox(width: 5),
                 Text(
                   totalElapsed,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 13,
-                    fontFeatures: [FontFeature.tabularFigures()],
+                    height: _compactControlTextHeight,
+                    fontFeatures: const [FontFeature.tabularFigures()],
                   ),
                 ),
               ],
@@ -2567,7 +2594,11 @@ class _SessionMenuRow extends StatelessWidget {
           title,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: TextStyle(fontSize: 13, color: colors.primaryText),
+          style: TextStyle(
+            fontSize: 13,
+            height: _compactControlTextHeight,
+            color: colors.primaryText,
+          ),
         ),
       ),
     );
@@ -2625,6 +2656,7 @@ class _ConfirmationOverlay extends StatelessWidget {
                     colors: colors,
                     label: 'キャンセル',
                     onPressed: onClose,
+                    opticallyAlignTextOnWindows: true,
                   ),
                   const SizedBox(width: 8),
                 ],
@@ -2635,6 +2667,7 @@ class _ConfirmationOverlay extends StatelessWidget {
                   onPressed: onConfirm,
                   prominent: true,
                   destructive: destructive,
+                  opticallyAlignTextOnWindows: true,
                 ),
               ],
             ),
@@ -4303,6 +4336,7 @@ class _ChoiceBar extends StatelessWidget {
                     labels[index],
                     style: TextStyle(
                       fontSize: 12,
+                      height: _compactControlTextHeight,
                       fontWeight: index == selectedIndex
                           ? FontWeight.w500
                           : FontWeight.w400,
@@ -4383,98 +4417,104 @@ class _GuideOverlay extends StatefulWidget {
 }
 
 class _GuideOverlayState extends State<_GuideOverlay> {
-  static const _sections = [
-    _GuideSection(
-      title: '計測を始める・区切る',
-      summary: '開始・停止・再開と Split の基本操作',
-      details: [
-        '開始で計測を始め、停止と再開で同じセッションの計測を続けます。',
-        '計測中に Split を押すと現在の区切りを確定し、次の Split を作成します。',
-        '中央の全体経過と左側のリングで、セッション全体の経過時間を確認できます。',
-      ],
-    ),
-    _GuideSection(
-      title: 'セッションを管理する',
-      summary: '切り替え・追加・名前変更・整理',
-      details: [
-        '上部の一覧または三点ボタンから、表示するセッションを切り替えられます。',
-        '表示中のセッション名をクリックすると、名前を編集できます。',
-        'プラスボタンで新しいセッションを追加します。追加や切り替えを行うと、計測中のセッションは停止します。',
-        'リセットは現在の内容だけを初期化し、削除はセッション自体を取り除きます。どちらも実行前に確認が表示されます。',
-      ],
-    ),
-    _GuideSection(
-      title: 'Split を編集・配分する',
-      summary: '名前の編集と時間の割り当て方法',
-      details: [
-        'Split 名をクリックすると、その場で名前を編集できます。',
-        'ラジオ配分では、選択中の Split に経過時間が加算されます。',
-        'チェック配分では、チェックした Split に経過秒を順番に分配します。複数の Split に同じ時間は重複加算されません。',
-        '配分モードは、サマリーボタン左のアイコンから切り替えます。',
-      ],
-    ),
-    _GuideSection(
-      title: 'メモを記録する',
-      summary: 'Split ごとの作業内容を残す',
-      details: [
-        '各 Split のメモアイコンから、Split 名とメモを編集できます。',
-        'メモ画面には、その Split に割り当てられた経過時間も表示されます。',
-        '閉じるボタンで編集内容を確定し、端末内へ保存します。',
-      ],
-    ),
-    _GuideSection(
-      title: 'サマリーを作成する',
-      summary: '作業記録を整えてコピーする',
-      details: [
-        'サマリーボタンで、表示中のセッションから一覧テキストを作成します。',
-        'サマリー本文はコピー前に直接編集できるため、共有先に合わせて手直しできます。',
-        '上部の表示形式ボタンで書式を、時間ボタンで時間・h（小数第1位まで）・h（小数第2位まで）を選べます。',
-        'コピーボタンで、表示中のサマリーをクリップボードへコピーします。',
-      ],
-    ),
-    _GuideSection(
-      title: 'サマリー表示をカスタマイズする',
-      summary: 'タイトル・時間・メモの書式と置換ルール',
-      details: [
-        'サマリーの表示形式ボタンまたは設定から、標準・テンプレート・作成済みのカスタムを選べます。',
-        'カスタムでは {title}・{time}・{memo} を使い、各項目の前後や改行を自由に設定できます。',
-        '置換ルールは完全一致する文字列を対象に上から順番に適用し、{match} で一致した文字列を再利用できます。',
-        '左側の入力例は編集可能で、右側の変更がサマリープレビューへすぐ反映されます。',
-        '新規作成はサマリーと設定のどちらからでも行えます。名前変更・編集・削除は設定から行います。',
-      ],
-    ),
-    _GuideSection(
-      title: 'ショートカットを使う',
-      summary: 'SplitLog を開かずに主要操作を実行',
-      details: [
-        '⌘⌃S: Split / ⌘⌃X: 停止 / ⌘⌃R: 再開',
-        '⌘⌃V: 表示切替 / ⌘⌃M: 選択中の Split メモを開く',
-        '⌘⌃1...9: 指定位置を選択 / ⌘⌃0: 最新を選択 / ⌘⌃↑↓: 選択位置を移動',
-        'グローバルショートカットは、設定からまとめてオン・オフできます。',
-      ],
-    ),
-    _GuideSection(
-      title: '表示とアプリ動作を整える',
-      summary: 'テーマ・リング周期・初期モード・ロック',
-      details: [
-        '設定からテーマカラー、モノクロ表示、リング周期、新規セッションの初期配分モードを変更できます。',
-        '円グラフ左上の小さい表示からもリング周期の設定を開けます。',
-        '南京錠をオンにすると SplitLog を前面に保ち、ほかの場所をクリックしても閉じなくなります。オフの場合は外側のクリックで閉じます。',
-        'ウィンドウを閉じてもアプリは常駐します。完全に終了する場合は、設定の「SplitLogを終了」を使います。',
-        'ヘッダーの「?」または設定の案内から、操作説明とお問い合わせを開けます。',
-      ],
-    ),
-    _GuideSection(
-      title: 'データを移行・管理する',
-      summary: 'ローカル保存・旧版インポート・初期化',
-      details: [
-        'セッションと設定はこの端末内に保存され、ほかの端末とは自動同期されません。',
-        '旧macOS版のデータは起動時に自動検知して確認後に取り込むか、設定から sessions.json を選んで手動で取り込めます。',
-        '設定のストレージ項目から、セッション情報または Split データだけを削除できます。',
-        '設定だけのリセットと全データの初期化も選べます。削除や初期化は確認後に実行されます。',
-      ],
-    ),
-  ];
+  static List<_GuideSection> get _sections {
+    final isWindows = defaultTargetPlatform == TargetPlatform.windows;
+    final shortcutPrefix = isWindows ? 'Ctrl+Alt+' : '⌘⌃';
+    return [
+      _GuideSection(
+        title: '計測を始める・区切る',
+        summary: '開始・停止・再開と Split の基本操作',
+        details: [
+          '開始で計測を始め、停止と再開で同じセッションの計測を続けます。',
+          '計測中に Split を押すと現在の区切りを確定し、次の Split を作成します。',
+          '中央の全体経過と左側のリングで、セッション全体の経過時間を確認できます。',
+        ],
+      ),
+      _GuideSection(
+        title: 'セッションを管理する',
+        summary: '切り替え・追加・名前変更・整理',
+        details: [
+          '上部の一覧または三点ボタンから、表示するセッションを切り替えられます。',
+          '表示中のセッション名をクリックすると、名前を編集できます。',
+          'プラスボタンで新しいセッションを追加します。追加や切り替えを行うと、計測中のセッションは停止します。',
+          'リセットは現在の内容だけを初期化し、削除はセッション自体を取り除きます。どちらも実行前に確認が表示されます。',
+        ],
+      ),
+      _GuideSection(
+        title: 'Split を編集・配分する',
+        summary: '名前の編集と時間の割り当て方法',
+        details: [
+          'Split 名をクリックすると、その場で名前を編集できます。',
+          'ラジオ配分では、選択中の Split に経過時間が加算されます。',
+          'チェック配分では、チェックした Split に経過秒を順番に分配します。複数の Split に同じ時間は重複加算されません。',
+          '配分モードは、サマリーボタン左のアイコンから切り替えます。',
+        ],
+      ),
+      _GuideSection(
+        title: 'メモを記録する',
+        summary: 'Split ごとの作業内容を残す',
+        details: [
+          '各 Split のメモアイコンから、Split 名とメモを編集できます。',
+          'メモ画面には、その Split に割り当てられた経過時間も表示されます。',
+          '閉じるボタンで編集内容を確定し、端末内へ保存します。',
+        ],
+      ),
+      _GuideSection(
+        title: 'サマリーを作成する',
+        summary: '作業記録を整えてコピーする',
+        details: [
+          'サマリーボタンで、表示中のセッションから一覧テキストを作成します。',
+          'サマリー本文はコピー前に直接編集できるため、共有先に合わせて手直しできます。',
+          '上部の表示形式ボタンで書式を、時間ボタンで時間・h（小数第1位まで）・h（小数第2位まで）を選べます。',
+          'コピーボタンで、表示中のサマリーをクリップボードへコピーします。',
+        ],
+      ),
+      _GuideSection(
+        title: 'サマリー表示をカスタマイズする',
+        summary: 'タイトル・時間・メモの書式と置換ルール',
+        details: [
+          'サマリーの表示形式ボタンまたは設定から、標準・テンプレート・作成済みのカスタムを選べます。',
+          'カスタムでは {title}・{time}・{memo} を使い、各項目の前後や改行を自由に設定できます。',
+          '置換ルールは完全一致する文字列を対象に上から順番に適用し、{match} で一致した文字列を再利用できます。',
+          '左側の入力例は編集可能で、右側の変更がサマリープレビューへすぐ反映されます。',
+          '新規作成はサマリーと設定のどちらからでも行えます。名前変更・編集・削除は設定から行います。',
+        ],
+      ),
+      _GuideSection(
+        title: 'ショートカットを使う',
+        summary: 'SplitLog を開かずに主要操作を実行',
+        details: [
+          '${shortcutPrefix}S: Split / ${shortcutPrefix}X: 停止 / ${shortcutPrefix}R: 再開',
+          '${shortcutPrefix}V: 表示切替 / ${shortcutPrefix}M: 選択中の Split メモを開く',
+          '${shortcutPrefix}1...9: 指定位置を選択 / ${shortcutPrefix}0: 最新を選択 / $shortcutPrefix↑↓: 選択位置を移動',
+          'グローバルショートカットは、設定からまとめてオン・オフできます。',
+        ],
+      ),
+      _GuideSection(
+        title: '表示とアプリ動作を整える',
+        summary: 'テーマ・リング周期・初期モード・ロック',
+        details: [
+          '設定からテーマカラー、モノクロ表示、リング周期、新規セッションの初期配分モードを変更できます。',
+          '円グラフ左上の小さい表示からもリング周期の設定を開けます。',
+          '南京錠をオンにすると SplitLog を前面に保ち、ほかの場所をクリックしても閉じなくなります。オフの場合は外側のクリックで閉じます。',
+          'ウィンドウを閉じてもアプリは常駐します。完全に終了する場合は、設定の「SplitLogを終了」を使います。',
+          'ヘッダーの「?」または設定の案内から、操作説明とお問い合わせを開けます。',
+        ],
+      ),
+      _GuideSection(
+        title: 'データを移行・管理する',
+        summary: 'ローカル保存・旧版インポート・初期化',
+        details: [
+          'セッションと設定はこの端末内に保存され、ほかの端末とは自動同期されません。',
+          isWindows
+              ? '旧macOS版のデータは、設定から sessions.json を選んで手動で取り込めます。'
+              : '旧macOS版のデータは起動時に自動検知して確認後に取り込むか、設定から sessions.json を選んで手動で取り込めます。',
+          '設定のストレージ項目から、セッション情報または Split データだけを削除できます。',
+          '設定だけのリセットと全データの初期化も選べます。削除や初期化は確認後に実行されます。',
+        ],
+      ),
+    ];
+  }
 
   int? _expandedIndex = 0;
 
@@ -4775,6 +4815,7 @@ class _CompactDialogButton extends StatelessWidget {
     required this.onPressed,
     this.prominent = false,
     this.destructive = false,
+    this.opticallyAlignTextOnWindows = false,
   });
 
   final _DesktopPreviewColors colors;
@@ -4782,6 +4823,7 @@ class _CompactDialogButton extends StatelessWidget {
   final VoidCallback onPressed;
   final bool prominent;
   final bool destructive;
+  final bool opticallyAlignTextOnWindows;
 
   @override
   Widget build(BuildContext context) {
@@ -4806,12 +4848,16 @@ class _CompactDialogButton extends StatelessWidget {
           border: Border.all(color: border),
           borderRadius: BorderRadius.circular(7),
         ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: foreground,
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
+        child: _withWindowsOpticalTextAlignment(
+          enabled: opticallyAlignTextOnWindows,
+          child: Text(
+            label,
+            style: TextStyle(
+              color: foreground,
+              fontSize: 12,
+              height: _compactControlTextHeight,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
       ),
@@ -5036,6 +5082,9 @@ class _TextActionButton extends StatelessWidget {
             style: TextStyle(
               color: foreground,
               fontSize: 12,
+              height: defaultTargetPlatform == TargetPlatform.windows
+                  ? 1
+                  : null,
               fontWeight: prominent ? FontWeight.w600 : FontWeight.w500,
             ),
           ),
@@ -5113,6 +5162,7 @@ class _SmallPill extends StatelessWidget {
               style: TextStyle(
                 color: colors.accent,
                 fontSize: 10,
+                height: _compactControlTextHeight,
                 fontWeight: FontWeight.w700,
               ),
             ),
@@ -5256,6 +5306,7 @@ class _SummaryFormatPill extends StatelessWidget {
               style: TextStyle(
                 color: colors.accent,
                 fontSize: 10,
+                height: _compactControlTextHeight,
                 fontWeight: FontWeight.w700,
               ),
             ),
@@ -5279,7 +5330,7 @@ List<PopupMenuEntry<String>> _summaryFormatMenuItems(
         height: 30,
         child: Text(
           format.id == templateSummaryFormatId ? 'テンプレート' : format.name,
-          style: const TextStyle(fontSize: 12),
+          style: TextStyle(fontSize: 12, height: _compactControlTextHeight),
         ),
       ),
     if (customFormats.isNotEmpty) const PopupMenuDivider(height: 8),
@@ -5291,19 +5342,22 @@ List<PopupMenuEntry<String>> _summaryFormatMenuItems(
           format.name,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontSize: 12),
+          style: TextStyle(fontSize: 12, height: _compactControlTextHeight),
         ),
       ),
     if (includeAdd) const PopupMenuDivider(height: 8),
     if (includeAdd)
-      const PopupMenuItem<String>(
+      PopupMenuItem<String>(
         value: '_add',
         height: 30,
         child: Row(
           children: [
-            Icon(Icons.add, size: 14),
-            SizedBox(width: 6),
-            Text('カスタムを追加', style: TextStyle(fontSize: 12)),
+            const Icon(Icons.add, size: 14),
+            const SizedBox(width: 6),
+            Text(
+              'カスタムを追加',
+              style: TextStyle(fontSize: 12, height: _compactControlTextHeight),
+            ),
           ],
         ),
       ),
@@ -5336,7 +5390,7 @@ class _SummaryFormatMenuSurface extends StatelessWidget {
               label,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 11),
+              style: TextStyle(fontSize: 11, height: _compactControlTextHeight),
             ),
           ),
           const SizedBox(width: 3),
@@ -5539,7 +5593,10 @@ class _MenuValuePill extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(label, style: const TextStyle(fontSize: 12)),
+          Text(
+            label,
+            style: TextStyle(fontSize: 12, height: _compactControlTextHeight),
+          ),
           const SizedBox(width: 4),
           Icon(Icons.arrow_drop_down, size: 14, color: colors.secondaryText),
         ],
@@ -6048,7 +6105,11 @@ class _DesktopPreviewColors {
       foregroundColor: Colors.white,
       minimumSize: const Size(60, 26),
       padding: const EdgeInsets.symmetric(horizontal: 12),
-      textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+      textStyle: TextStyle(
+        fontSize: 12,
+        height: _compactControlTextHeight,
+        fontWeight: FontWeight.w600,
+      ),
       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
       visualDensity: VisualDensity.standard,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(7)),

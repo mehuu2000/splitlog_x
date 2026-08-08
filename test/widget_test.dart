@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -31,6 +32,124 @@ void main() {
     await tester.tap(find.byTooltip('サマリー'));
     await tester.pump();
     expect(find.text('テンプレ'), findsOneWidget);
+  });
+
+  testWidgets('uses bundled Windows typography and centers action labels', (
+    WidgetTester tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    try {
+      await _pumpApp(tester, storage);
+
+      final theme = Theme.of(tester.element(find.byType(Scaffold)));
+      expect(theme.textTheme.bodyMedium!.fontFamily, 'Inter');
+      expect(
+        theme.textTheme.bodyMedium!.fontFamilyFallback,
+        contains('Noto Sans JP'),
+      );
+      expect(theme.textTheme.bodyMedium!.fontWeight, FontWeight.w400);
+
+      final textHeightBehavior = tester.widget<DefaultTextHeightBehavior>(
+        find.byKey(const ValueKey<String>('windows-even-text-leading')),
+      );
+      expect(
+        textHeightBehavior.textHeightBehavior.leadingDistribution,
+        TextLeadingDistribution.even,
+      );
+
+      final splitLabel = find.text('Split');
+      final splitButton = find.ancestor(
+        of: splitLabel,
+        matching: find.byType(InkWell),
+      );
+      final splitText = tester.widget<Text>(splitLabel);
+
+      expect(splitText.style!.height, 1);
+      expect(
+        (tester.getCenter(splitLabel).dy - tester.getCenter(splitButton).dy)
+            .abs(),
+        lessThan(0.01),
+      );
+
+      final sessionTextTransform = find.descendant(
+        of: find.byKey(const ValueKey<String>('session-selector-chip-0')),
+        matching: find.byType(Transform),
+      );
+      expect(sessionTextTransform, findsOneWidget);
+      expect(
+        tester
+            .widget<Transform>(sessionTextTransform)
+            .transform
+            .getTranslation()
+            .y,
+        -1,
+      );
+
+      await tester.tap(find.byTooltip('設定'));
+      await tester.pump();
+
+      expect(tester.widget<Text>(find.text('カラー')).style!.height, 1);
+      expect(tester.widget<Text>(find.text('テンプレ')).style!.height, 1);
+      expect(tester.widget<Text>(find.text('閉じる')).style!.height, 1);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('optically aligns Windows confirmation labels', (
+    WidgetTester tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    try {
+      await _pumpApp(tester, storage);
+
+      await tester.tap(find.byTooltip('リセット'));
+      await tester.pump();
+
+      for (final key in const [
+        'confirmation-cancel-button',
+        'confirmation-confirm-button',
+      ]) {
+        final transform = find.descendant(
+          of: find.byKey(ValueKey<String>(key)),
+          matching: find.byType(Transform),
+        );
+        expect(transform, findsOneWidget);
+        expect(
+          tester.widget<Transform>(transform).transform.getTranslation().y,
+          -1,
+        );
+      }
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('keeps system typography on macOS', (WidgetTester tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    try {
+      await _pumpApp(tester, storage);
+
+      final theme = Theme.of(tester.element(find.byType(Scaffold)));
+      expect(theme.textTheme.bodyMedium!.fontFamily, isNot('Inter'));
+      expect(
+        theme.textTheme.bodyMedium!.fontFamilyFallback,
+        contains('Hiragino Sans'),
+      );
+      expect(
+        find.byKey(const ValueKey<String>('windows-even-text-leading')),
+        findsNothing,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey<String>('session-selector-chip-0')),
+          matching: find.byType(Transform),
+        ),
+        findsNothing,
+      );
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
   });
 
   testWidgets('summary time supports all three display formats', (
@@ -179,6 +298,56 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('セッションと設定はこの端末内に保存され、ほかの端末とは自動同期されません。'), findsOneWidget);
+  });
+
+  testWidgets('guide uses Windows desktop instructions on Windows', (
+    WidgetTester tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    try {
+      await _pumpApp(tester, storage);
+
+      await tester.tap(find.byTooltip('使い方'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('操作説明'));
+      await tester.pumpAndSettle();
+
+      final guideScrollView = find.byKey(
+        const ValueKey<String>('guide-sections-scroll-view'),
+      );
+      final guideScrollable = find.descendant(
+        of: guideScrollView,
+        matching: find.byType(Scrollable),
+      );
+
+      await tester.scrollUntilVisible(
+        find.text('ショートカットを使う'),
+        180,
+        scrollable: guideScrollable,
+      );
+      await tester.tap(find.text('ショートカットを使う'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Ctrl+Alt+S: Split / Ctrl+Alt+X: 停止 / Ctrl+Alt+R: 再開'),
+        findsOneWidget,
+      );
+
+      await tester.scrollUntilVisible(
+        find.text('データを移行・管理する'),
+        180,
+        scrollable: guideScrollable,
+      );
+      await tester.tap(find.text('データを移行・管理する'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('旧macOS版のデータは、設定から sessions.json を選んで手動で取り込めます。'),
+        findsOneWidget,
+      );
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
   });
 
   testWidgets('blocks actions until storage loading completes', (
