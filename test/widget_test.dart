@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -179,6 +180,56 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('セッションと設定はこの端末内に保存され、ほかの端末とは自動同期されません。'), findsOneWidget);
+  });
+
+  testWidgets('guide uses Windows desktop instructions on Windows', (
+    WidgetTester tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    try {
+      await _pumpApp(tester, storage);
+
+      await tester.tap(find.byTooltip('使い方'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('操作説明'));
+      await tester.pumpAndSettle();
+
+      final guideScrollView = find.byKey(
+        const ValueKey<String>('guide-sections-scroll-view'),
+      );
+      final guideScrollable = find.descendant(
+        of: guideScrollView,
+        matching: find.byType(Scrollable),
+      );
+
+      await tester.scrollUntilVisible(
+        find.text('ショートカットを使う'),
+        180,
+        scrollable: guideScrollable,
+      );
+      await tester.tap(find.text('ショートカットを使う'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Ctrl+Alt+S: Split / Ctrl+Alt+X: 停止 / Ctrl+Alt+R: 再開'),
+        findsOneWidget,
+      );
+
+      await tester.scrollUntilVisible(
+        find.text('データを移行・管理する'),
+        180,
+        scrollable: guideScrollable,
+      );
+      await tester.tap(find.text('データを移行・管理する'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('旧macOS版のデータは、設定から sessions.json を選んで手動で取り込めます。'),
+        findsOneWidget,
+      );
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
   });
 
   testWidgets('blocks actions until storage loading completes', (
