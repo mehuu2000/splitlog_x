@@ -148,14 +148,16 @@ void main() {
     expect(await storageFile.readAsString(), malformedContent);
   });
 
-  test('uses the legacy default three-hour ring cycle', () {
+  test('uses the current default display settings', () {
     const defaults = SplitLogSettingsSnapshot();
     final restored = SplitLogSettingsSnapshot.fromJson(const {});
 
-    expect(defaults.ringHoursPerCycle, 3);
-    expect(restored.ringHoursPerCycle, 3);
-    expect(defaults.selectedSummaryFormatId, standardSummaryFormatId);
-    expect(restored.selectedSummaryFormatId, standardSummaryFormatId);
+    expect(defaults.ringHoursPerCycle, 4);
+    expect(restored.ringHoursPerCycle, 4);
+    expect(defaults.selectedSummaryFormatId, templateSummaryFormatId);
+    expect(restored.selectedSummaryFormatId, templateSummaryFormatId);
+    expect(defaults.summaryTimeFormat, defaultSummaryTimeFormatName);
+    expect(restored.summaryTimeFormat, defaultSummaryTimeFormatName);
   });
 
   test('migrates legacy summary memo formats', () {

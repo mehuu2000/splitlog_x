@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:splitlog_x/core/models/session_models.dart';
 import 'package:splitlog_x/core/services/session_storage_service.dart';
 import 'package:splitlog_x/main.dart';
 
@@ -23,9 +24,113 @@ void main() {
     expect(find.text(todayTitle), findsWidgets);
     expect(find.text('全体経過'), findsOneWidget);
     expect(find.text('Split'), findsOneWidget);
-    expect(find.text('3h'), findsOneWidget);
+    expect(find.text('4h'), findsOneWidget);
     expect(appTheme.inputDecorationTheme.focusColor, Colors.transparent);
     expect(appTheme.inputDecorationTheme.hoverColor, Colors.transparent);
+
+    await tester.tap(find.byTooltip('サマリー'));
+    await tester.pump();
+    expect(find.text('テンプレ'), findsOneWidget);
+  });
+
+  testWidgets('summary time supports all three display formats', (
+    WidgetTester tester,
+  ) async {
+    final endedAt = DateTime.utc(2026, 8, 8, 13, 6);
+    final startedAt = endedAt.subtract(const Duration(hours: 1, minutes: 6));
+    storage.snapshot = SplitLogStorageSnapshot(
+      savedAt: endedAt,
+      selectedSessionIndex: 0,
+      settings: const SplitLogSettingsSnapshot(),
+      sessions: [
+        StopwatchSnapshot(
+          session: WorkSession(
+            id: 'session-summary-time',
+            title: '時間表示確認',
+            startedAt: startedAt,
+            endedAt: endedAt,
+          ),
+          laps: [
+            WorkLap(
+              id: 'lap-summary-time',
+              sessionId: 'session-summary-time',
+              index: 1,
+              startedAt: startedAt,
+              endedAt: endedAt,
+              accumulatedSeconds: 3960,
+              label: '作業',
+            ),
+          ],
+          selectedLapId: 'lap-summary-time',
+          activeLapIds: const {'lap-summary-time'},
+          splitAccumulationMode: SplitAccumulationMode.radio,
+          state: SessionState.stopped,
+          pauseStartedAt: endedAt,
+          lastDistributedWholeSeconds: 3960,
+          distributionCursor: 0,
+          totalPausedSeconds: 0,
+        ),
+      ],
+    );
+
+    await _pumpApp(tester, storage);
+    await tester.tap(find.byTooltip('サマリー'));
+    await tester.pump();
+
+    expect(find.text('テンプレ'), findsOneWidget);
+    expect(find.text('1.1h'), findsOneWidget);
+    var summaryEditor = tester.widget<TextField>(find.byType(TextField));
+    expect(summaryEditor.controller!.text, contains('[ 作業 ]　(1.1h)'));
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('summary-time-format-menu')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('h（小数第2位まで）'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('1.10h'), findsOneWidget);
+    summaryEditor = tester.widget<TextField>(find.byType(TextField));
+    expect(summaryEditor.controller!.text, contains('[ 作業 ]　(1.10h)'));
+    expect(storage.snapshot!.settings.summaryTimeFormat, 'decimalHoursPrecise');
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('summary-time-format-menu')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('時間'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('1時間6分'), findsOneWidget);
+    summaryEditor = tester.widget<TextField>(find.byType(TextField));
+    expect(summaryEditor.controller!.text, contains('[ 作業 ]　(1時間6分)'));
+    expect(storage.snapshot!.settings.summaryTimeFormat, 'hourMinute');
+  });
+
+  testWidgets('settings directly selects a summary time format', (
+    WidgetTester tester,
+  ) async {
+    await _pumpApp(tester, storage);
+    await tester.tap(find.byTooltip('設定'));
+    await tester.pump();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey<String>('settings-summary-time-format-menu')),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('settings-summary-time-format-menu')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('時間'), findsOneWidget);
+    expect(find.text('h（小数第1位まで）'), findsOneWidget);
+    expect(find.text('h（小数第2位まで）'), findsOneWidget);
+
+    await tester.tap(find.text('h（小数第2位まで）'));
+    await tester.pumpAndSettle();
+
+    expect(storage.snapshot!.settings.summaryTimeFormat, 'decimalHoursPrecise');
   });
 
   testWidgets('guide explains the current desktop features', (
@@ -221,10 +326,11 @@ void main() {
     final summaryEditor = find.byType(TextField);
     await tester.tap(find.byKey(const ValueKey<String>('summary-format-menu')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('テンプ').last);
+    await tester.tap(find.text('テンプレート').last);
     await tester.pumpAndSettle();
 
     var summary = tester.widget<TextField>(summaryEditor).controller!.text;
+    expect(find.text('テンプレ'), findsOneWidget);
     expect(summary, contains('[ 実装 ]'));
     expect(summary, contains('・確認メモ'));
 
@@ -588,7 +694,7 @@ void main() {
       find.byKey(const ValueKey<String>('settings-summary-format-menu')),
     );
     await tester.pumpAndSettle();
-    expect(find.text('標準'), findsOneWidget);
+    expect(find.text('テンプレ'), findsOneWidget);
   });
 
   testWidgets('selected session scrolls to the center of the selector', (

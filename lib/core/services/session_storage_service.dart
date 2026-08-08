@@ -4,6 +4,10 @@ import 'dart:io';
 import '../models/session_models.dart';
 import '../models/summary_format.dart';
 
+const defaultRingHoursPerCycle = 4;
+const defaultSummaryFormatId = templateSummaryFormatId;
+const defaultSummaryTimeFormatName = 'decimalHours';
+
 class SessionStorageReadException implements Exception {
   const SessionStorageReadException([this.cause]);
 
@@ -14,11 +18,11 @@ class SplitLogSettingsSnapshot {
   const SplitLogSettingsSnapshot({
     this.isLocked = false,
     this.isMonochrome = false,
-    this.ringHoursPerCycle = 3,
+    this.ringHoursPerCycle = defaultRingHoursPerCycle,
     this.defaultSplitMode = SplitAccumulationMode.radio,
-    this.selectedSummaryFormatId = standardSummaryFormatId,
+    this.selectedSummaryFormatId = defaultSummaryFormatId,
     this.customSummaryFormats = const [],
-    this.summaryTimeFormat = 'decimalHours',
+    this.summaryTimeFormat = defaultSummaryTimeFormatName,
     this.shortcutsEnabled = true,
   });
 
@@ -56,18 +60,21 @@ class SplitLogSettingsSnapshot {
       isMonochrome: json['isMonochrome'] as bool? ?? false,
       ringHoursPerCycle: _intValue(
         json['ringHoursPerCycle'],
-        fallback: 3,
+        fallback: defaultRingHoursPerCycle,
       ).clamp(1, 24),
       defaultSplitMode: SplitAccumulationMode.fromJson(
         json['defaultSplitMode'],
       ),
       selectedSummaryFormatId:
           json['selectedSummaryFormatId'] as String? ??
-          (legacyMemoFormat == 'bulleted'
-              ? templateSummaryFormatId
-              : standardSummaryFormatId),
+          switch (legacyMemoFormat) {
+            'plain' => standardSummaryFormatId,
+            'bulleted' => templateSummaryFormatId,
+            _ => defaultSummaryFormatId,
+          },
       customSummaryFormats: customSummaryFormats,
-      summaryTimeFormat: json['summaryTimeFormat'] as String? ?? 'decimalHours',
+      summaryTimeFormat:
+          json['summaryTimeFormat'] as String? ?? defaultSummaryTimeFormatName,
       shortcutsEnabled: json['shortcutsEnabled'] as bool? ?? true,
     );
   }
