@@ -40,6 +40,15 @@ class SplitLogApp extends StatelessWidget {
       title: 'SplitLog',
       debugShowCheckedModeBanner: false,
       theme: baseTheme,
+      builder: isWindows
+          ? (context, child) => DefaultTextHeightBehavior(
+              key: const ValueKey<String>('windows-even-text-leading'),
+              textHeightBehavior: const TextHeightBehavior(
+                leadingDistribution: TextLeadingDistribution.even,
+              ),
+              child: child ?? const SizedBox.shrink(),
+            )
+          : null,
       home: SplitLogDesktopPreviewPage(storage: storage),
     );
   }

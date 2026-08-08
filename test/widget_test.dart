@@ -49,6 +49,14 @@ void main() {
       );
       expect(theme.textTheme.bodyMedium!.fontWeight, FontWeight.w400);
 
+      final textHeightBehavior = tester.widget<DefaultTextHeightBehavior>(
+        find.byKey(const ValueKey<String>('windows-even-text-leading')),
+      );
+      expect(
+        textHeightBehavior.textHeightBehavior.leadingDistribution,
+        TextLeadingDistribution.even,
+      );
+
       final splitLabel = find.text('Split');
       final splitButton = find.ancestor(
         of: splitLabel,
@@ -62,6 +70,13 @@ void main() {
             .abs(),
         lessThan(0.01),
       );
+
+      await tester.tap(find.byTooltip('設定'));
+      await tester.pump();
+
+      expect(tester.widget<Text>(find.text('カラー')).style!.height, 1);
+      expect(tester.widget<Text>(find.text('テンプレ')).style!.height, 1);
+      expect(tester.widget<Text>(find.text('閉じる')).style!.height, 1);
     } finally {
       debugDefaultTargetPlatformOverride = null;
     }
@@ -77,6 +92,10 @@ void main() {
       expect(
         theme.textTheme.bodyMedium!.fontFamilyFallback,
         contains('Hiragino Sans'),
+      );
+      expect(
+        find.byKey(const ValueKey<String>('windows-even-text-leading')),
+        findsNothing,
       );
     } finally {
       debugDefaultTargetPlatformOverride = null;

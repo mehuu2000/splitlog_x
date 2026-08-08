@@ -43,6 +43,9 @@ const _summaryTimeFormatOptions = [
   _SummaryTimeFormat.decimalHoursPrecise,
 ];
 
+double? get _compactControlTextHeight =>
+    !kIsWeb && defaultTargetPlatform == TargetPlatform.windows ? 1 : null;
+
 enum _ToastStyle { success, error }
 
 enum _SettingsStorageAction {
@@ -1465,7 +1468,10 @@ class _SessionSelectorState extends State<_SessionSelector> {
                     child: Text(
                       session,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 11),
+                      style: TextStyle(
+                        fontSize: 11,
+                        height: _compactControlTextHeight,
+                      ),
                     ),
                   ),
                 );
@@ -1583,14 +1589,19 @@ class _SessionStatusRow extends StatelessWidget {
               children: [
                 Text(
                   '全体経過',
-                  style: TextStyle(fontSize: 13, color: colors.secondaryText),
+                  style: TextStyle(
+                    fontSize: 13,
+                    height: _compactControlTextHeight,
+                    color: colors.secondaryText,
+                  ),
                 ),
                 const SizedBox(width: 5),
                 Text(
                   totalElapsed,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 13,
-                    fontFeatures: [FontFeature.tabularFigures()],
+                    height: _compactControlTextHeight,
+                    fontFeatures: const [FontFeature.tabularFigures()],
                   ),
                 ),
               ],
@@ -2568,7 +2579,11 @@ class _SessionMenuRow extends StatelessWidget {
           title,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: TextStyle(fontSize: 13, color: colors.primaryText),
+          style: TextStyle(
+            fontSize: 13,
+            height: _compactControlTextHeight,
+            color: colors.primaryText,
+          ),
         ),
       ),
     );
@@ -4304,6 +4319,7 @@ class _ChoiceBar extends StatelessWidget {
                     labels[index],
                     style: TextStyle(
                       fontSize: 12,
+                      height: _compactControlTextHeight,
                       fontWeight: index == selectedIndex
                           ? FontWeight.w500
                           : FontWeight.w400,
@@ -4818,6 +4834,7 @@ class _CompactDialogButton extends StatelessWidget {
           style: TextStyle(
             color: foreground,
             fontSize: 12,
+            height: _compactControlTextHeight,
             fontWeight: FontWeight.w600,
           ),
         ),
@@ -5123,6 +5140,7 @@ class _SmallPill extends StatelessWidget {
               style: TextStyle(
                 color: colors.accent,
                 fontSize: 10,
+                height: _compactControlTextHeight,
                 fontWeight: FontWeight.w700,
               ),
             ),
@@ -5266,6 +5284,7 @@ class _SummaryFormatPill extends StatelessWidget {
               style: TextStyle(
                 color: colors.accent,
                 fontSize: 10,
+                height: _compactControlTextHeight,
                 fontWeight: FontWeight.w700,
               ),
             ),
@@ -5289,7 +5308,7 @@ List<PopupMenuEntry<String>> _summaryFormatMenuItems(
         height: 30,
         child: Text(
           format.id == templateSummaryFormatId ? 'テンプレート' : format.name,
-          style: const TextStyle(fontSize: 12),
+          style: TextStyle(fontSize: 12, height: _compactControlTextHeight),
         ),
       ),
     if (customFormats.isNotEmpty) const PopupMenuDivider(height: 8),
@@ -5301,19 +5320,22 @@ List<PopupMenuEntry<String>> _summaryFormatMenuItems(
           format.name,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontSize: 12),
+          style: TextStyle(fontSize: 12, height: _compactControlTextHeight),
         ),
       ),
     if (includeAdd) const PopupMenuDivider(height: 8),
     if (includeAdd)
-      const PopupMenuItem<String>(
+      PopupMenuItem<String>(
         value: '_add',
         height: 30,
         child: Row(
           children: [
-            Icon(Icons.add, size: 14),
-            SizedBox(width: 6),
-            Text('カスタムを追加', style: TextStyle(fontSize: 12)),
+            const Icon(Icons.add, size: 14),
+            const SizedBox(width: 6),
+            Text(
+              'カスタムを追加',
+              style: TextStyle(fontSize: 12, height: _compactControlTextHeight),
+            ),
           ],
         ),
       ),
@@ -5346,7 +5368,7 @@ class _SummaryFormatMenuSurface extends StatelessWidget {
               label,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 11),
+              style: TextStyle(fontSize: 11, height: _compactControlTextHeight),
             ),
           ),
           const SizedBox(width: 3),
@@ -5549,7 +5571,10 @@ class _MenuValuePill extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(label, style: const TextStyle(fontSize: 12)),
+          Text(
+            label,
+            style: TextStyle(fontSize: 12, height: _compactControlTextHeight),
+          ),
           const SizedBox(width: 4),
           Icon(Icons.arrow_drop_down, size: 14, color: colors.secondaryText),
         ],
@@ -6058,7 +6083,11 @@ class _DesktopPreviewColors {
       foregroundColor: Colors.white,
       minimumSize: const Size(60, 26),
       padding: const EdgeInsets.symmetric(horizontal: 12),
-      textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+      textStyle: TextStyle(
+        fontSize: 12,
+        height: _compactControlTextHeight,
+        fontWeight: FontWeight.w600,
+      ),
       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
       visualDensity: VisualDensity.standard,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(7)),
