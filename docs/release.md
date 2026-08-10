@@ -4,7 +4,7 @@
 
 この文書は、SplitLogの配布物を作成・確認するための手順です。
 
-現在確立しているのは、macOS版とWindows版をReleaseビルドし、身内向けのZIPとして直接配布する手順です。Mac App Store提出、Developer ID署名、公証、Windowsインストーラー、iPhone、Androidの配布手順は未確定です。
+現在確立しているのは、macOS版とWindows版をReleaseビルドし、身内向けのZIPとして直接配布する手順です。iPhoneとAndroidはMobile用エントリーポイントによるDebugビルドまで確認済みです。Mac App Store提出、Developer ID署名、公証、Windowsインストーラー、TestFlight、Release APKの配布手順は未確定です。
 
 ## バージョン
 
@@ -227,8 +227,8 @@ Start-Process `
 | --- | --- | --- |
 | macOS | ReleaseビルドをZIPで直接配布 | DMG、Developer ID署名、公証 |
 | Windows | ReleaseビルドをZIPで直接配布 | MSI/MSIX、コード署名 |
-| iPhone | 未実装 | TestFlight |
-| Android | 未実装 | APK、必要に応じてGoogle Play |
+| iPhone | Mobile UI・Simulator Debugビルド確認済み | 実機検証、TestFlight |
+| Android | Mobile UI・Debug APKビルド確認済み | 実機検証、署名済みAPK、必要に応じてGoogle Play |
 
 未確定のプラットフォームについて、検証前のコマンドや署名手順をこの文書へ推測で追加しないでください。実機ビルドと配布確認が完了した時点で追記します。
 

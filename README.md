@@ -8,7 +8,7 @@
   作業時間をSplit単位で記録し、メモとサマリーにまとめる常駐型タイムトラッカー
 </p>
 
-SplitLogは、作業セッションを細かなSplitに分けて時間とメモを記録するFlutterアプリです。macOSではメニューバー、Windowsではタスクトレイに常駐し、必要なときだけ小さなウィンドウを開いて操作できます。
+SplitLogは、作業セッションを細かなSplitに分けて時間とメモを記録するFlutterアプリです。macOSではメニューバー、Windowsではタスクトレイに常駐し、iPhoneとAndroidでは縦画面の全画面アプリとして利用できます。
 
 既存のSwift/AppKit版SplitLogを参照実装として、macOS、Windows、iPhone、Androidで同じ記録体験を提供することを目標に再構築しています。
 
@@ -18,10 +18,10 @@ SplitLogは、作業セッションを細かなSplitに分けて時間とメモ�
 | --- | --- | --- |
 | macOS | v1完成 | ZIPによる直接配布 |
 | Windows | v1完成 | ZIPによる直接配布 |
-| iPhone | 開発予定 | TestFlight |
-| Android | 開発予定 | APK |
+| iPhone | v1開発中 | TestFlight予定 |
+| Android | v1開発中 | APK予定 |
 
-現在、実用可能な対象はmacOS版とWindows版です。iPhone、Androidの各プロジェクトは生成済みですが、モバイル向け画面とプラットフォーム固有処理の実装・配布確認は今後行います。
+現在、配布確認まで完了しているのはmacOS版とWindows版です。iPhone、Androidは共通Mobile UI、基本操作、ローカル保存、バックグラウンド復帰を実装し、Debugビルドまで確認しています。実機検証、識別子・署名、TestFlightとRelease APKの準備は作業中です。
 
 ## 主な機能
 
@@ -38,6 +38,7 @@ SplitLogは、作業セッションを細かなSplitに分けて時間とメモ�
 - ウィンドウの前面固定と、外側クリックによる自動非表示
 - 設定で有効・無効を切り替えられるグローバルショートカット
 - ローカルJSONへの自動保存と旧SplitLogデータのインポート
+- iPhone・Android向けの縦画面UIと、バックグラウンド復帰時の経過時間再計算
 
 ## macOS版のインストール
 
@@ -73,7 +74,7 @@ SplitLogは、作業セッションを細かなSplitに分けて時間とメモ�
 5. 必要に応じて`停止`と`再開`を使います。
 6. ヘッダーのサマリーボタンから内容を確認・編集し、クリップボードへコピーします。
 
-ウィンドウ外をクリックするとSplitLogは非表示になります。南京錠をオンにすると前面に固定され、外側をクリックしても閉じません。終了するときは、設定画面または常駐アイコンのメニューから`SplitLogを終了`を選択してください。
+Desktop版では、ウィンドウ外をクリックするとSplitLogは非表示になります。南京錠をオンにすると前面に固定され、外側をクリックしても閉じません。終了するときは、設定画面または常駐アイコンのメニューから`SplitLogを終了`を選択してください。
 
 ## グローバルショートカット
 
@@ -124,6 +125,13 @@ flutter pub get
 flutter run -d windows
 ```
 
+iPhoneとAndroidはMobile用エントリーポイントを指定します。
+
+```bash
+flutter run -d "iPhone 17 Pro" -t lib/main_mobile.dart
+flutter run -d <Android端末ID> -t lib/main_mobile.dart
+```
+
 必要な環境、プロジェクト構成、テスト方法は[`docs/development.md`](docs/development.md)を参照してください。
 
 ## ドキュメント
@@ -136,7 +144,7 @@ flutter run -d windows
 
 1. macOS版v1: 完了
 2. Windows版v1: 完了
-3. iPhone/Android版: 縦画面向けUIと復帰時の正確な時間復元を実装
+3. iPhone/Android版: 共通Mobile UIの実機検証と配布準備
 4. 必要性を確認したうえで、通知・同期・ストア配布を検討
 
 詳細は[`plan.md`](plan.md)に記録しています。

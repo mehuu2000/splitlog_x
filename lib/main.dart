@@ -9,14 +9,15 @@ void main() {
 }
 
 class SplitLogApp extends StatelessWidget {
-  const SplitLogApp({super.key, this.storage});
+  const SplitLogApp({super.key, this.storage, this.platform});
 
   final SessionStorageService? storage;
+  final TargetPlatform? platform;
 
   @override
   Widget build(BuildContext context) {
-    final isWindows =
-        !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
+    final targetPlatform = platform ?? defaultTargetPlatform;
+    final isWindows = !kIsWeb && targetPlatform == TargetPlatform.windows;
     final baseTheme = ThemeData(
       colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF2F6FED)),
       useMaterial3: true,
