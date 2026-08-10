@@ -4,7 +4,7 @@
 
 この文書は、SplitLogの配布物を作成・確認するための手順です。
 
-現在確立しているのは、macOS版とWindows版をReleaseビルドし、身内向けのZIPとして直接配布する手順です。iPhoneとAndroidはMobile用エントリーポイントによるDebugビルドとSimulator/Emulator表示を確認済みです。Mac App Store提出、Developer ID署名、公証、Windowsインストーラー、TestFlight、Release APKの配布手順は未確定です。
+現在確立しているのは、macOS版とWindows版をReleaseビルドし、身内向けのZIPとして直接配布する手順です。iPhoneとAndroidは共通Mobile UIのDebugビルドとSimulator/Emulator表示まで確認済みですが、今回の配布対象には含めません。Mac App Store提出、Developer ID署名、公証、Windowsインストーラー、TestFlight、Release APKは未対応です。
 
 ## バージョン
 
@@ -51,9 +51,11 @@ git diff --check
 
 ## macOS Releaseビルド
 
-プロジェクトルートで実行します。
+プロジェクトルートで実行します。配布用では、増分ビルドに古い署名情報が残らないよう生成物をクリーンにしてから構築します。
 
 ```bash
+flutter clean
+flutter pub get
 flutter build macos --release
 ```
 
@@ -74,6 +76,15 @@ open build/macos/Build/Products/Release/SplitLog.app
 ```bash
 file build/macos/Build/Products/Release/SplitLog.app/Contents/MacOS/SplitLog
 ```
+
+内部Frameworkを含むローカル署名の整合性を確認します。
+
+```bash
+codesign --verify --deep --strict --verbose=2 \
+  build/macos/Build/Products/Release/SplitLog.app
+```
+
+`valid on disk`と表示されず失敗した場合は、そのアプリをZIPにせず、再度`flutter clean`からビルドしてください。
 
 ## macOS ZIP作成
 
@@ -227,8 +238,8 @@ Start-Process `
 | --- | --- | --- |
 | macOS | ReleaseビルドをZIPで直接配布 | DMG、Developer ID署名、公証 |
 | Windows | ReleaseビルドをZIPで直接配布 | MSI/MSIX、コード署名 |
-| iPhone | Mobile UI・Simulator Debugビルド・大小画面確認済み | 実機検証、TestFlight |
-| Android | Mobile UI・Debug APKビルド・Emulator大小画面確認済み | 実機検証、署名済みAPK、必要に応じてGoogle Play |
+| iPhone | Mobile UI・Simulator Debugビルド・大小画面確認済み。今回の配布対象外 | 実機検証、署名、TestFlight |
+| Android | Mobile UI・Debug APKビルド・Emulator大小画面確認済み。今回の配布対象外 | 実機検証、署名済みAPK、必要に応じてGoogle Play |
 
 未確定のプラットフォームについて、検証前のコマンドや署名手順をこの文書へ推測で追加しないでください。実機ビルドと配布確認が完了した時点で追記します。
 

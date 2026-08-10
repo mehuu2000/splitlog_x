@@ -17,6 +17,22 @@ void main() {
     storage = _MemorySessionStorageService();
   });
 
+  testWidgets('selects the app shell for the target platform', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      SplitLogPlatformApp(storage: storage, platform: TargetPlatform.iOS),
+    );
+    expect(find.byType(SplitLogMobileApp), findsOneWidget);
+    expect(find.byType(SplitLogApp), findsNothing);
+
+    await tester.pumpWidget(
+      SplitLogPlatformApp(storage: storage, platform: TargetPlatform.macOS),
+    );
+    expect(find.byType(SplitLogApp), findsOneWidget);
+    expect(find.byType(SplitLogMobileApp), findsNothing);
+  });
+
   testWidgets('shows SplitLog desktop preview', (WidgetTester tester) async {
     await _pumpApp(tester, storage);
     final todayTitle = _dateTitle(DateTime.now());

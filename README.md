@@ -8,7 +8,7 @@
   作業時間をSplit単位で記録し、メモとサマリーにまとめる常駐型タイムトラッカー
 </p>
 
-SplitLogは、作業セッションを細かなSplitに分けて時間とメモを記録するFlutterアプリです。macOSではメニューバー、Windowsではタスクトレイに常駐し、iPhoneとAndroidでは縦画面の全画面アプリとして利用できます。
+SplitLogは、作業セッションを細かなSplitに分けて時間とメモを記録するFlutterアプリです。macOSではメニューバー、Windowsではタスクトレイに常駐します。iPhoneとAndroid向けには、縦画面の全画面UIを実装しています。
 
 既存のSwift/AppKit版SplitLogを参照実装として、macOS、Windows、iPhone、Androidで同じ記録体験を提供することを目標に再構築しています。
 
@@ -18,10 +18,10 @@ SplitLogは、作業セッションを細かなSplitに分けて時間とメモ�
 | --- | --- | --- |
 | macOS | v1完成 | ZIPによる直接配布 |
 | Windows | v1完成 | ZIPによる直接配布 |
-| iPhone | v1機能完成・配布準備中 | TestFlight予定 |
-| Android | v1機能完成・配布準備中 | APK予定 |
+| iPhone | v1機能完成 | 今回の配布対象外 |
+| Android | v1機能完成 | 今回の配布対象外 |
 
-現在、配布確認まで完了しているのはmacOS版とWindows版です。iPhone、Androidは共通Mobile UI、基本操作、ローカル保存、バックグラウンド復帰を実装し、iPhone SimulatorとAndroid Emulatorで大小の画面を確認済みです。実機検証、識別子・署名、TestFlightとRelease APKの準備は作業中です。
+今回の配布対象はmacOS版とWindows版です。iPhone、Androidは共通Mobile UI、基本操作、ローカル保存、バックグラウンド復帰を実装し、識別子とアイコンを設定したうえでiPhone SimulatorとAndroid Emulatorの大小画面を確認済みです。実機検証、署名、TestFlight、Release APKは今回の対象に含めません。
 
 ## 主な機能
 
@@ -125,11 +125,11 @@ flutter pub get
 flutter run -d windows
 ```
 
-iPhoneとAndroidはMobile用エントリーポイントを指定します。
+iPhoneとAndroidでも、既定の`lib/main.dart`が実行先OSを判定してMobile UIを起動します。
 
 ```bash
-flutter run -d "iPhone 17 Pro" -t lib/main_mobile.dart
-flutter run -d <Android端末ID> -t lib/main_mobile.dart
+flutter run -d "iPhone 17 Pro"
+flutter run -d <Android端末ID>
 ```
 
 必要な環境、プロジェクト構成、テスト方法は[`docs/development.md`](docs/development.md)を参照してください。
@@ -144,7 +144,7 @@ flutter run -d <Android端末ID> -t lib/main_mobile.dart
 
 1. macOS版v1: 完了
 2. Windows版v1: 完了
-3. iPhone/Android版: 共通Mobile UIの実装完了、実機検証と配布準備
-4. 必要性を確認したうえで、通知・同期・ストア配布を検討
+3. iPhone/Android版: 共通Mobile UIの実装完了、今回の配布対象外
+4. 必要性を確認したうえで、実機配布、通知、同期、ストア配布を検討
 
 詳細は[`plan.md`](plan.md)に記録しています。

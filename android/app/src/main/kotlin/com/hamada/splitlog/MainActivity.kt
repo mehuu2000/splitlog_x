@@ -1,4 +1,4 @@
-package com.example.splitlog_x
+package com.hamada.splitlog
 
 import android.app.Activity
 import android.content.Intent

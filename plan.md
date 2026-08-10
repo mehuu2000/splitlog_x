@@ -10,7 +10,7 @@
 
 - Step 1 macOS版v1: 完了
 - Step 2 Windows版v1: 完了
-- Step 3 iPhone/Android版: 実装中
+- Step 3 iPhone/Android版: v1機能実装完了・配布保留
 
 ## 対象プラットフォーム
 
@@ -158,10 +158,10 @@ v1ではネットワークを使わず、端末ローカル保存のみとする
 
 - macOS: zip/dmg配布
 - Windows: v1はzip配布、必要になった段階でmsi/msixを検討
-- iOS: TestFlight
-- Android: APK直接配布
+- iOS: v1機能は実装済み。今回のリリースでは配布しない
+- Android: v1機能は実装済み。今回のリリースでは配布しない
 
-ストア配布はv1の必須要件にはしない。
+今回の配布対象はmacOSとWindowsの身内向けzipのみとする。モバイルの実機配布、署名、ストア提出は、必要性と運用コストを再評価してから行う。
 
 ## 実装構成方針
 
@@ -316,7 +316,7 @@ iPhone版とAndroid版は、共通のMobile UIを使う全画面アプリとし�
    - iPhone/Androidで共有する画面構成と個別対応範囲を確定する
 2. Step 3-2: モバイル基盤（完了）
    - iPhone/Androidで`MobileSessionView`を選択する
-   - DesktopとMobileのビルドエントリーポイントを分離する
+   - 既定の`lib/main.dart`から実行先OSに応じてDesktop/Mobile UIを自動選択する
    - 縦画面へ固定し、Safe Areaに対応する
    - Application Support領域へ`sessions.json`を保存する
 3. Step 3-3: 共通Mobile UI（現代的なモバイルUIへ再設計済み）
@@ -336,19 +336,20 @@ iPhone版とAndroid版は、共通のMobile UIを使う全画面アプリとし�
    - Desktop版の配色、リング、Split行、主要操作の視覚表現をMobile UIへ反映した
    - セッション名とSplit名の編集、カスタムフォーマット管理、操作説明、データ管理のモバイル向け導線を実装しWidgetテストで確認した
    - iOSのDocument PickerとAndroidのStorage Access Frameworkを使い、`sessions.json`の手動インポートを実装した
-   - モバイル向けWidgetテスト8件を含む全57テストと静的解析の成功を確認した
-6. Step 3-6: iPhone検証（Simulator検証完了・配布準備待ち）
-   - Simulatorと実機で表示、保存、バックグラウンド復帰を確認する
-   - 表示名、アイコン、Bundle ID、署名をTestFlight向けに整備する
+   - OS別の起動判定テストを含む全58テストと静的解析の成功を確認した
+6. Step 3-6: iPhone検証（Simulator検証完了・配布保留）
+   - Simulatorで表示、保存、バックグラウンド復帰を確認する
+   - 表示名、アイコン、Bundle IDを整備する
    - iPhone 17 ProとiPhone SE SimulatorのDebugビルド・初期表示は確認済み
    - iPhone 17 ProとiPhone SEで現代的なMobile UIのメイン画面を実行し、タイマー、複数Split、固定下部操作、小画面スクロールを確認した
-7. Step 3-7: Android検証（Emulator検証完了・配布準備待ち）
-   - Emulatorと実機で表示、保存、戻る操作を確認する
-   - 表示名、アイコン、Application ID、リリース署名をAPK向けに整備する
+   - 実機検証、署名、TestFlight配布は今回の対象外とする
+7. Step 3-7: Android検証（Emulator検証完了・配布保留）
+   - Emulatorで表示、保存、戻る操作を確認する
+   - 表示名、アイコン、Application IDを整備する
    - Debug APKのビルドとAndroid Emulatorでの大小画面表示は確認済み。実機とRelease APKは未検証
-8. Step 3-8: 配布準備
-   - iOSはTestFlightへ提出できるArchiveを作成する
-   - Androidは署名済みRelease APKを作成する
+   - 実機検証とリリース署名は今回の対象外とする
+8. Step 3-8: 配布準備（今回の対象外）
+   - iOSのTestFlight提出とAndroidの署名済みRelease APKは必要性を再評価してから行う
 
 Step 3の完了条件:
 
@@ -356,13 +357,14 @@ Step 3の完了条件:
 - Desktop版と同じセッション・タイマー・Split・メモ・サマリーの基本操作を使える
 - アプリをバックグラウンドへ移しても、復帰時の経過時間が正しい
 - 各端末のローカル領域へデータを保存・復元できる
-- iPhoneはTestFlight、AndroidはAPKで確認用配布ができる
+- iPhone SimulatorとAndroid EmulatorでMobile UIを検証できる
+- 実機配布と署名は次期判断事項として明記されている
 
 ### Step 4以降
 
 1. モバイルの通知・ロック画面表示の必要性を再評価する
 2. 端末間同期の必要性を再評価する
-3. ストア配布、インストーラー、公証・署名を拡張する
+3. モバイル実機配布、ストア配布、インストーラー、公証・署名を再評価する
 
 ## 実装前の制約
 

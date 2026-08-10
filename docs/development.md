@@ -4,7 +4,7 @@
 
 この文書は、SplitLogの開発環境を準備し、実装・検証を行う開発者向けのガイドです。
 
-現在完成しているのはmacOS版v1とWindows版v1です。両Desktop版は共通のFlutter UIとコアロジックを使い、常駐・ウィンドウ・ショートカットなどをOS別のネイティブ層で実装しています。iPhone、Androidは共通Mobile UI、基本操作、ローカル保存、ライフサイクル復帰まで実装済みで、Simulator/Emulator検証も完了しています。実機検証と配布準備が残っています。
+macOS版v1とWindows版v1は、身内向けZIPで配布できる状態です。両Desktop版は共通のFlutter UIとコアロジックを使い、常駐・ウィンドウ・ショートカットなどをOS別のネイティブ層で実装しています。iPhone、Androidは共通Mobile UI、基本操作、ローカル保存、ライフサイクル復帰まで実装し、Simulator/Emulator検証も完了していますが、実機検証と配布は今回の対象に含めません。
 
 ## 必要な環境
 
@@ -74,16 +74,16 @@ flutter run -d windows
 iPhone:
 
 ```bash
-flutter run -d "iPhone 17 Pro" -t lib/main_mobile.dart
+flutter run -d "iPhone 17 Pro"
 ```
 
 Android:
 
 ```bash
-flutter run -d <Android端末ID> -t lib/main_mobile.dart
+flutter run -d <Android端末ID>
 ```
 
-`lib/main.dart`はmacOS/Windows、`lib/main_mobile.dart`はiPhone/Androidのエントリーポイントです。Flutter 3.44.xのDesktop Release AOTへ不要なMobile画面ツリーを含めず、各対象で安定してビルドするために分離しています。
+`lib/main.dart`は実行先OSを判定し、macOS/WindowsではDesktop UI、iPhone/AndroidではMobile UIを起動します。`lib/main_mobile.dart`はMobile UIを単独で検証する場合に利用できますが、通常の実行やビルドで`-t`を指定する必要はありません。
 
 実行中のターミナルでは、次のキーを使用できます。
 

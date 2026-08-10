@@ -1,11 +1,41 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'core/services/session_storage_service.dart';
 import 'features/session/desktop/desktop_session_view.dart';
+import 'main_mobile.dart' as mobile;
 
-void main() {
-  runApp(const SplitLogApp());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final targetPlatform = defaultTargetPlatform;
+  if (_isMobilePlatform(targetPlatform)) {
+    await SystemChrome.setPreferredOrientations(const [
+      DeviceOrientation.portraitUp,
+    ]);
+  }
+  runApp(SplitLogPlatformApp(platform: targetPlatform));
+}
+
+bool _isMobilePlatform(TargetPlatform platform) {
+  return !kIsWeb &&
+      (platform == TargetPlatform.iOS || platform == TargetPlatform.android);
+}
+
+class SplitLogPlatformApp extends StatelessWidget {
+  const SplitLogPlatformApp({super.key, this.storage, this.platform});
+
+  final SessionStorageService? storage;
+  final TargetPlatform? platform;
+
+  @override
+  Widget build(BuildContext context) {
+    final targetPlatform = platform ?? defaultTargetPlatform;
+    if (_isMobilePlatform(targetPlatform)) {
+      return mobile.SplitLogMobileApp(storage: storage);
+    }
+    return SplitLogApp(storage: storage, platform: targetPlatform);
+  }
 }
 
 class SplitLogApp extends StatelessWidget {
