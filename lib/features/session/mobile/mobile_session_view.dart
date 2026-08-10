@@ -351,8 +351,12 @@ class _MobileSessionViewState extends State<MobileSessionView>
     required String title,
     required String initialValue,
   }) async {
-    return showDialog<String>(
+    return showModalBottomSheet<String>(
       context: context,
+      useSafeArea: true,
+      showDragHandle: true,
+      isScrollControlled: true,
+      backgroundColor: _MobileColors(isMonochrome: _isMonochrome).surface,
       builder: (context) => _MobileTextEditorDialog(
         title: title,
         initialValue: initialValue,
@@ -483,16 +487,6 @@ class _MobileSessionViewState extends State<MobileSessionView>
     }
   }
 
-  Future<void> _openHelp() async {
-    await Navigator.of(context).push<void>(
-      MaterialPageRoute(
-        builder: (context) => _MobileGuideScreen(
-          colors: _MobileColors(isMonochrome: _isMonochrome),
-        ),
-      ),
-    );
-  }
-
   Future<void> _confirmReset() async {
     final confirmed = await _showConfirmation(
       title: 'セッションをリセットしますか？',
@@ -613,37 +607,14 @@ class _MobileSessionViewState extends State<MobileSessionView>
     bool destructive = false,
   }) async {
     final colors = _MobileColors(isMonochrome: _isMonochrome);
-    return await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            backgroundColor: colors.background,
-            surfaceTintColor: Colors.transparent,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-              side: BorderSide(color: colors.border),
-            ),
-            title: Text(
-              title,
-              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
-            ),
-            content: Text(message, style: const TextStyle(fontSize: 12)),
-            actions: [
-              _MobileCompactTextButton(
-                colors: colors,
-                label: 'キャンセル',
-                onPressed: () => Navigator.pop(context, false),
-              ),
-              _MobileCompactTextButton(
-                colors: colors,
-                label: confirmLabel,
-                prominent: !destructive,
-                destructive: destructive,
-                onPressed: () => Navigator.pop(context, true),
-              ),
-            ],
-          ),
-        ) ??
-        false;
+    return _showMobileConfirmationSheet(
+      context: context,
+      colors: colors,
+      title: title,
+      message: message,
+      confirmLabel: confirmLabel,
+      destructive: destructive,
+    );
   }
 
   void _showMessage(String message) {
@@ -693,25 +664,21 @@ class _MobileSessionViewState extends State<MobileSessionView>
               sessions: _sessionTitles,
               selectedSessionIndex: _selectedSessionIndex,
               onSelectSession: _selectSession,
-              onOpenHelp: _openHelp,
+              onEditSession: _editSessionTitle,
               onAddSession: _addSession,
               onOpenSettings: _openSettings,
             ),
-            Divider(height: 1, color: colors.border),
             Expanded(
               child: CustomScrollView(
                 slivers: [
                   SliverToBoxAdapter(
                     child: _MobileSessionOverview(
                       colors: colors,
-                      sessionTitle:
-                          _stopwatch.session?.title ?? _dateTitle(_clock),
                       stateLabel: _stateLabel,
                       totalSeconds: _totalSeconds,
                       ringHoursPerCycle: _ringHoursPerCycle,
                       laps: _stopwatch.laps,
                       lapSeconds: lapSeconds,
-                      onEditTitle: _editSessionTitle,
                       onEditRingCycle: _openSettings,
                       onOpenSummary: _openSummary,
                     ),
@@ -719,6 +686,7 @@ class _MobileSessionViewState extends State<MobileSessionView>
                   SliverToBoxAdapter(
                     child: _MobileSplitSectionHeader(
                       colors: colors,
+                      count: _stopwatch.laps.length,
                       mode: _stopwatch.splitAccumulationMode,
                       onModeChanged: _setSplitMode,
                     ),
@@ -782,7 +750,7 @@ class _MobileHeader extends StatelessWidget {
     required this.sessions,
     required this.selectedSessionIndex,
     required this.onSelectSession,
-    required this.onOpenHelp,
+    required this.onEditSession,
     required this.onAddSession,
     required this.onOpenSettings,
   });
@@ -791,276 +759,148 @@ class _MobileHeader extends StatelessWidget {
   final List<String> sessions;
   final int selectedSessionIndex;
   final ValueChanged<int> onSelectSession;
-  final VoidCallback onOpenHelp;
+  final VoidCallback onEditSession;
   final VoidCallback onAddSession;
   final VoidCallback onOpenSettings;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 44,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10),
-        child: Row(
-          children: [
-            Icon(Icons.timer_outlined, size: 17, color: colors.primaryText),
-            const SizedBox(width: 5),
-            Text(
-              'SplitLog',
-              style: TextStyle(
-                color: colors.primaryText,
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
-              ),
+    return Container(
+      color: colors.surface,
+      padding: const EdgeInsets.fromLTRB(16, 6, 16, 10),
+      child: Column(
+        children: [
+          SizedBox(
+            height: 48,
+            child: Row(
+              children: [
+                Container(
+                  width: 34,
+                  height: 34,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: colors.accent,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.timer_outlined,
+                    size: 20,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'SplitLog',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: colors.primaryText,
+                      fontSize: 19,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                _MobileCircleIconButton(
+                  colors: colors,
+                  tooltip: 'セッションを追加',
+                  icon: Icons.add,
+                  onPressed: onAddSession,
+                ),
+                const SizedBox(width: 4),
+                _MobileCircleIconButton(
+                  colors: colors,
+                  tooltip: '設定',
+                  icon: Icons.settings_outlined,
+                  onPressed: onOpenSettings,
+                ),
+              ],
             ),
-            const SizedBox(width: 6),
-            _MobileCircleIconButton(
-              icon: Icons.question_mark,
-              tooltip: '使い方',
-              colors: colors,
-              size: 24,
-              iconSize: 11,
-              onPressed: onOpenHelp,
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: PopupMenuButton<int>(
-                key: const ValueKey<String>('mobile-session-menu'),
-                tooltip: 'セッションを切り替え',
-                onSelected: onSelectSession,
-                itemBuilder: (context) => [
-                  for (var index = 0; index < sessions.length; index += 1)
-                    PopupMenuItem<int>(
-                      value: index,
-                      height: 36,
-                      child: Row(
+          ),
+          const SizedBox(height: 4),
+          Material(
+            key: const ValueKey<String>('mobile-session-menu'),
+            color: colors.control,
+            borderRadius: BorderRadius.circular(8),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: () async {
+                final selected = await _showMobileSelectionSheet<int>(
+                  context: context,
+                  colors: colors,
+                  title: 'セッションを選択',
+                  selectedValue: selectedSessionIndex,
+                  options: [
+                    for (var index = 0; index < sessions.length; index += 1)
+                      _MobileSelectionOption<int>(
+                        value: index,
+                        label: sessions[index],
+                        icon: Icons.timer_outlined,
+                      ),
+                  ],
+                );
+                if (selected != null) {
+                  onSelectSession(selected);
+                }
+              },
+              child: SizedBox(
+                height: 48,
+                child: Row(
+                  children: [
+                    const SizedBox(width: 13),
+                    Icon(Icons.layers_outlined, size: 18, color: colors.accent),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          SizedBox(
-                            width: 20,
-                            child: index == selectedSessionIndex
-                                ? Icon(
-                                    Icons.check,
-                                    size: 17,
-                                    color: colors.accent,
-                                  )
-                                : null,
+                          Text(
+                            'セッション',
+                            style: TextStyle(
+                              color: colors.secondaryText,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w500,
+                            ),
                           ),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: Text(
-                              sessions[index],
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontSize: 13),
+                          const SizedBox(height: 1),
+                          Text(
+                            sessions[selectedSessionIndex],
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: colors.primaryText,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
                         ],
                       ),
                     ),
-                ],
-                child: Container(
-                  height: 28,
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  decoration: BoxDecoration(
-                    color: colors.headerControl,
-                    borderRadius: BorderRadius.circular(999),
-                    border: Border.all(color: colors.strongBorder),
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          sessions[selectedSessionIndex],
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: colors.primaryText,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ),
-                      Icon(
-                        Icons.arrow_drop_down,
-                        size: 18,
-                        color: colors.secondaryText,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 7),
-            _MobileCircleIconButton(
-              colors: colors,
-              tooltip: 'セッションを追加',
-              icon: Icons.add,
-              onPressed: onAddSession,
-            ),
-            const SizedBox(width: 7),
-            _MobileCircleIconButton(
-              colors: colors,
-              tooltip: '設定',
-              icon: Icons.settings_outlined,
-              onPressed: onOpenSettings,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _MobileSessionOverview extends StatelessWidget {
-  const _MobileSessionOverview({
-    required this.colors,
-    required this.sessionTitle,
-    required this.stateLabel,
-    required this.totalSeconds,
-    required this.ringHoursPerCycle,
-    required this.laps,
-    required this.lapSeconds,
-    required this.onEditTitle,
-    required this.onEditRingCycle,
-    required this.onOpenSummary,
-  });
-
-  final _MobileColors colors;
-  final String sessionTitle;
-  final String stateLabel;
-  final int totalSeconds;
-  final int ringHoursPerCycle;
-  final List<WorkLap> laps;
-  final Map<String, int> lapSeconds;
-  final VoidCallback onEditTitle;
-  final VoidCallback onEditRingCycle;
-  final VoidCallback onOpenSummary;
-
-  @override
-  Widget build(BuildContext context) {
-    final hasOuterRing = totalSeconds >= ringHoursPerCycle * 3600;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: InkWell(
-                  key: const ValueKey<String>('mobile-session-title-editor'),
-                  borderRadius: BorderRadius.circular(5),
-                  onTap: onEditTitle,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 3),
-                    child: _MobileSessionTitle(
-                      colors: colors,
-                      title: sessionTitle,
+                    Icon(
+                      Icons.keyboard_arrow_down,
+                      size: 20,
+                      color: colors.secondaryText,
                     ),
-                  ),
-                ),
-              ),
-              _MobileSmallPill(
-                colors: colors,
-                label: '全体経過 ${_formatDuration(totalSeconds)}',
-              ),
-              const SizedBox(width: 6),
-              _MobileUtilityButton(
-                colors: colors,
-                tooltip: 'サマリー',
-                icon: Icons.description_outlined,
-                onPressed: onOpenSummary,
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Container(
-            height: 180,
-            width: double.infinity,
-            decoration: BoxDecoration(
-              color: colors.section,
-              border: Border.all(color: colors.border),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Stack(
-              children: [
-                Positioned(
-                  top: 9,
-                  left: 11,
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(5),
-                    onTap: onEditRingCycle,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 4,
-                        vertical: 2,
+                    SizedBox(
+                      key: const ValueKey<String>(
+                        'mobile-session-title-editor',
                       ),
-                      child: Text(
-                        '↻ ${ringHoursPerCycle}h',
-                        style: TextStyle(
-                          color: colors.secondaryText,
-                          fontSize: 10,
+                      width: 44,
+                      height: 44,
+                      child: IconButton(
+                        tooltip: 'セッション名を編集',
+                        onPressed: onEditSession,
+                        icon: Icon(
+                          Icons.edit_outlined,
+                          size: 18,
+                          color: colors.utility,
                         ),
                       ),
                     ),
-                  ),
+                  ],
                 ),
-                Center(
-                  child: SizedBox(
-                    width: 166,
-                    height: 166,
-                    child: Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        CustomPaint(
-                          size: const Size.square(166),
-                          painter: _MobileTimelinePainter(
-                            colors: colors,
-                            laps: laps,
-                            lapSeconds: lapSeconds,
-                            totalSeconds: totalSeconds,
-                            ringHoursPerCycle: ringHoursPerCycle,
-                          ),
-                        ),
-                        SizedBox(
-                          width: hasOuterRing ? 74 : 112,
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              FittedBox(
-                                fit: BoxFit.scaleDown,
-                                child: Text(
-                                  _formatDuration(totalSeconds),
-                                  key: const ValueKey<String>(
-                                    'mobile-total-elapsed',
-                                  ),
-                                  maxLines: 1,
-                                  style: TextStyle(
-                                    color: colors.primaryText,
-                                    fontSize: 19,
-                                    fontWeight: FontWeight.w600,
-                                    fontFeatures: const [
-                                      FontFeature.tabularFigures(),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 3),
-                              Text(
-                                stateLabel,
-                                style: TextStyle(
-                                  color: colors.secondaryText,
-                                  fontSize: 10,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
         ],
@@ -1069,38 +909,173 @@ class _MobileSessionOverview extends StatelessWidget {
   }
 }
 
+class _MobileSessionOverview extends StatelessWidget {
+  const _MobileSessionOverview({
+    required this.colors,
+    required this.stateLabel,
+    required this.totalSeconds,
+    required this.ringHoursPerCycle,
+    required this.laps,
+    required this.lapSeconds,
+    required this.onEditRingCycle,
+    required this.onOpenSummary,
+  });
+
+  final _MobileColors colors;
+  final String stateLabel;
+  final int totalSeconds;
+  final int ringHoursPerCycle;
+  final List<WorkLap> laps;
+  final Map<String, int> lapSeconds;
+  final VoidCallback onEditRingCycle;
+  final VoidCallback onOpenSummary;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasOuterRing = totalSeconds >= ringHoursPerCycle * 3600;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
+      child: SizedBox(
+        height: 224,
+        child: Stack(
+          children: [
+            Align(
+              alignment: Alignment.topLeft,
+              child: _MobileActionChip(
+                colors: colors,
+                icon: Icons.autorenew,
+                label: '${ringHoursPerCycle}h',
+                tooltip: 'リング周期を変更',
+                onPressed: onEditRingCycle,
+              ),
+            ),
+            Align(
+              alignment: Alignment.topRight,
+              child: _MobileActionChip(
+                colors: colors,
+                icon: Icons.description_outlined,
+                label: 'サマリー',
+                tooltip: 'サマリー',
+                onPressed: onOpenSummary,
+              ),
+            ),
+            Align(
+              alignment: Alignment.bottomCenter,
+              child: SizedBox(
+                width: 210,
+                height: 210,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    CustomPaint(
+                      size: const Size.square(210),
+                      painter: _MobileTimelinePainter(
+                        colors: colors,
+                        laps: laps,
+                        lapSeconds: lapSeconds,
+                        totalSeconds: totalSeconds,
+                        ringHoursPerCycle: ringHoursPerCycle,
+                      ),
+                    ),
+                    SizedBox(
+                      width: hasOuterRing ? 94 : 142,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            '合計時間',
+                            style: TextStyle(
+                              color: colors.secondaryText,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              _formatDuration(totalSeconds),
+                              key: const ValueKey<String>(
+                                'mobile-total-elapsed',
+                              ),
+                              maxLines: 1,
+                              style: TextStyle(
+                                color: colors.primaryText,
+                                fontSize: 27,
+                                fontWeight: FontWeight.w700,
+                                fontFeatures: const [
+                                  FontFeature.tabularFigures(),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 7),
+                          _MobileStatusBadge(
+                            colors: colors,
+                            label: stateLabel,
+                            running: stateLabel == '計測中',
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _MobileSplitSectionHeader extends StatelessWidget {
   const _MobileSplitSectionHeader({
     required this.colors,
+    required this.count,
     required this.mode,
     required this.onModeChanged,
   });
 
   final _MobileColors colors;
+  final int count;
   final SplitAccumulationMode mode;
   final ValueChanged<SplitAccumulationMode> onModeChanged;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 38,
-      padding: const EdgeInsets.fromLTRB(12, 6, 10, 6),
-      decoration: BoxDecoration(
-        color: colors.surface,
-        border: Border.symmetric(horizontal: BorderSide(color: colors.border)),
-      ),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 6),
       child: Row(
         children: [
-          Expanded(
+          Text(
+            'Split',
+            style: TextStyle(
+              color: colors.primaryText,
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(width: 7),
+          Container(
+            height: 22,
+            constraints: const BoxConstraints(minWidth: 22),
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: colors.accentSoft,
+              borderRadius: BorderRadius.circular(999),
+            ),
             child: Text(
-              'Split',
+              '$count',
               style: TextStyle(
-                color: colors.primaryText,
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
+                color: colors.accent,
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
               ),
             ),
           ),
+          const Spacer(),
           _MobileSplitModeControl(
             key: const ValueKey<String>('mobile-split-mode'),
             colors: colors,
@@ -1139,27 +1114,27 @@ class _MobileLapRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final splitColor = colors.lapColor(lap.index);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+      padding: const EdgeInsets.fromLTRB(16, 5, 16, 0),
       child: Material(
         color: selected ? colors.selectedRow : colors.lapCard,
-        borderRadius: BorderRadius.circular(8),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+          side: BorderSide(color: colors.border),
+        ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
+          borderRadius: BorderRadius.circular(8),
           onTap: onActivate,
           child: Container(
-            constraints: const BoxConstraints(minHeight: 54),
-            padding: const EdgeInsets.fromLTRB(6, 4, 5, 3),
-            decoration: BoxDecoration(
-              border: Border(
-                bottom: BorderSide(color: colors.lapColor(lap.index), width: 2),
-              ),
-            ),
+            constraints: const BoxConstraints(minHeight: 64),
+            padding: const EdgeInsets.fromLTRB(4, 5, 7, 5),
             child: Row(
               children: [
                 SizedBox(
-                  width: 40,
-                  height: 44,
+                  width: 44,
+                  height: 48,
                   child: IconButton(
                     tooltip: mode == SplitAccumulationMode.radio
                         ? 'Splitを選択'
@@ -1174,9 +1149,9 @@ class _MobileLapRow extends StatelessWidget {
                           : active
                           ? Icons.check_box
                           : Icons.check_box_outline_blank,
-                      size: 18,
+                      size: 21,
                       color: selected || active
-                          ? colors.utility
+                          ? colors.accent
                           : colors.secondaryText,
                     ),
                   ),
@@ -1184,67 +1159,112 @@ class _MobileLapRow extends StatelessWidget {
                 Expanded(
                   child: InkWell(
                     key: ValueKey<String>('mobile-lap-label-${lap.id}'),
-                    borderRadius: BorderRadius.circular(5),
+                    borderRadius: BorderRadius.circular(8),
                     onTap: onEditLabel,
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 2,
-                        vertical: 5,
+                        horizontal: 4,
+                        vertical: 6,
                       ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisAlignment: MainAxisAlignment.center,
+                      child: Row(
                         children: [
-                          Text(
-                            lap.label,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: colors.primaryText,
-                              fontSize: 13,
-                              height: 1.2,
-                              fontWeight: FontWeight.w500,
+                          Container(
+                            key: ValueKey<String>('mobile-lap-color-${lap.id}'),
+                            width: 14,
+                            height: 14,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(color: splitColor, width: 3),
                             ),
                           ),
-                          if (lap.memo.trim().isNotEmpty) ...[
-                            const SizedBox(height: 2),
-                            Text(
-                              lap.memo.replaceAll('\n', ' '),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: colors.secondaryText,
-                                fontSize: 10,
-                              ),
+                          const SizedBox(width: 9),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  lap.label,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: colors.primaryText,
+                                    fontSize: 14,
+                                    height: 1.25,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                if (lap.memo.trim().isNotEmpty) ...[
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    lap.memo.replaceAll('\n', ' '),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: colors.secondaryText,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                ],
+                              ],
                             ),
-                          ],
+                          ),
                         ],
                       ),
                     ),
                   ),
                 ),
-                const SizedBox(width: 6),
-                Text(
-                  _formatDuration(elapsedSeconds),
-                  style: TextStyle(
-                    color: colors.primaryText,
-                    fontSize: 12,
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                  ),
+                const SizedBox(width: 8),
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      _formatDuration(elapsedSeconds),
+                      style: TextStyle(
+                        color: colors.primaryText,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Split ${lap.index}',
+                      style: TextStyle(
+                        color: colors.secondaryText,
+                        fontSize: 9,
+                      ),
+                    ),
+                  ],
                 ),
+                const SizedBox(width: 3),
                 SizedBox(
-                  width: 38,
-                  height: 44,
+                  width: 44,
+                  height: 48,
                   child: IconButton(
                     tooltip: 'Splitメモ',
                     padding: EdgeInsets.zero,
                     onPressed: onOpenMemo,
-                    icon: Icon(
-                      lap.memo.trim().isEmpty
-                          ? Icons.note_add_outlined
-                          : Icons.sticky_note_2,
-                      color: colors.utility,
-                      size: 16,
+                    icon: Container(
+                      width: 32,
+                      height: 32,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: lap.memo.trim().isEmpty
+                            ? colors.control
+                            : colors.accentSoft,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Icon(
+                        lap.memo.trim().isEmpty
+                            ? Icons.note_add_outlined
+                            : Icons.sticky_note_2_outlined,
+                        color: lap.memo.trim().isEmpty
+                            ? colors.utility
+                            : colors.accent,
+                        size: 17,
+                      ),
                     ),
                   ),
                 ),
@@ -1279,33 +1299,40 @@ class _MobileBottomActions extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 9),
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
       decoration: BoxDecoration(
         color: colors.surface,
-        border: Border(top: BorderSide(color: colors.border)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 14,
+            offset: const Offset(0, -4),
+          ),
+        ],
       ),
       child: Row(
         children: [
           Expanded(
+            flex: 11,
             child: SizedBox(
-              height: 40,
+              height: 50,
               child: FilledButton.icon(
                 key: const ValueKey<String>('mobile-primary-action'),
                 onPressed: onPrimary,
                 icon: Icon(
                   primaryLabel == '停止' ? Icons.stop : Icons.play_arrow,
-                  size: 16,
+                  size: 19,
                 ),
                 label: Text(primaryLabel),
                 style: FilledButton.styleFrom(
                   backgroundColor: colors.accent,
                   foregroundColor: Colors.white,
                   textStyle: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
                   ),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(7),
+                    borderRadius: BorderRadius.circular(8),
                   ),
                 ),
               ),
@@ -1313,21 +1340,25 @@ class _MobileBottomActions extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           Expanded(
+            flex: 9,
             child: SizedBox(
-              height: 40,
+              height: 50,
               child: OutlinedButton.icon(
                 key: const ValueKey<String>('mobile-split-action'),
                 onPressed: splitEnabled ? onSplit : null,
-                icon: const Icon(Icons.call_split, size: 16),
+                icon: const Icon(Icons.call_split, size: 18),
                 label: const Text('Split'),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: colors.primaryText,
-                  backgroundColor: colors.buttonBackground,
+                  backgroundColor: colors.surface,
                   disabledForegroundColor: colors.softText,
                   side: BorderSide(color: colors.buttonBorder),
-                  textStyle: const TextStyle(fontSize: 13),
+                  textStyle: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(7),
+                    borderRadius: BorderRadius.circular(8),
                   ),
                 ),
               ),
@@ -1336,24 +1367,420 @@ class _MobileBottomActions extends StatelessWidget {
           const SizedBox(width: 8),
           _MobileUtilityButton(
             colors: colors,
-            tooltip: 'リセット',
-            icon: Icons.refresh,
-            size: 40,
-            onPressed: onReset,
-          ),
-          const SizedBox(width: 6),
-          _MobileUtilityButton(
-            colors: colors,
-            tooltip: 'セッションを削除',
-            icon: Icons.delete_outline,
-            size: 40,
-            destructive: true,
-            onPressed: onDelete,
+            tooltip: 'その他の操作',
+            icon: Icons.more_horiz,
+            size: 50,
+            onPressed: () => _showActions(context),
           ),
         ],
       ),
     );
   }
+
+  Future<void> _showActions(BuildContext context) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      useSafeArea: true,
+      showDragHandle: true,
+      backgroundColor: colors.surface,
+      builder: (sheetContext) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'セッション操作',
+              style: TextStyle(
+                color: colors.primaryText,
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 12),
+            _MobileSheetAction(
+              colors: colors,
+              icon: Icons.refresh,
+              title: '現在のセッションをリセット',
+              subtitle: 'Splitと計測時間を削除します',
+              onPressed: () {
+                Navigator.pop(sheetContext);
+                onReset();
+              },
+            ),
+            const SizedBox(height: 8),
+            _MobileSheetAction(
+              colors: colors,
+              icon: Icons.delete_outline,
+              title: '現在のセッションを削除',
+              subtitle: 'この操作は取り消せません',
+              destructive: true,
+              onPressed: () {
+                Navigator.pop(sheetContext);
+                onDelete();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MobileActionChip extends StatelessWidget {
+  const _MobileActionChip({
+    required this.colors,
+    required this.icon,
+    required this.label,
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  final _MobileColors colors;
+  final IconData icon;
+  final String label;
+  final String tooltip;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: colors.control,
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: onPressed,
+          child: Container(
+            height: 44,
+            padding: const EdgeInsets.symmetric(horizontal: 11),
+            decoration: BoxDecoration(
+              border: Border.all(color: colors.border),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 15, color: colors.accent),
+                const SizedBox(width: 6),
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: colors.primaryText,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MobileStatusBadge extends StatelessWidget {
+  const _MobileStatusBadge({
+    required this.colors,
+    required this.label,
+    required this.running,
+  });
+
+  final _MobileColors colors;
+  final String label;
+  final bool running;
+
+  @override
+  Widget build(BuildContext context) {
+    final foreground = running ? colors.accent : colors.secondaryText;
+    return Container(
+      height: 26,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      decoration: BoxDecoration(
+        color: running ? colors.accentSoft : colors.control,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(
+              color: foreground,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              color: foreground,
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MobileSheetAction extends StatelessWidget {
+  const _MobileSheetAction({
+    required this.colors,
+    required this.icon,
+    required this.title,
+    required this.onPressed,
+    this.subtitle,
+    this.destructive = false,
+  });
+
+  final _MobileColors colors;
+  final IconData icon;
+  final String title;
+  final String? subtitle;
+  final VoidCallback onPressed;
+  final bool destructive;
+
+  @override
+  Widget build(BuildContext context) {
+    final foreground = destructive ? colors.danger : colors.primaryText;
+    return Material(
+      color: destructive ? colors.dangerSoft : colors.control,
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: onPressed,
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 58),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+          child: Row(
+            children: [
+              Icon(icon, size: 20, color: foreground),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        color: foreground,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (subtitle != null) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        subtitle!,
+                        style: TextStyle(
+                          color: destructive
+                              ? colors.danger.withValues(alpha: 0.72)
+                              : colors.secondaryText,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right, size: 18, color: foreground),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MobileSelectionOption<T> {
+  const _MobileSelectionOption({
+    required this.value,
+    required this.label,
+    this.icon,
+    this.destructive = false,
+  });
+
+  final T value;
+  final String label;
+  final IconData? icon;
+  final bool destructive;
+}
+
+Future<T?> _showMobileSelectionSheet<T>({
+  required BuildContext context,
+  required _MobileColors colors,
+  required String title,
+  required List<_MobileSelectionOption<T>> options,
+  T? selectedValue,
+}) {
+  return showModalBottomSheet<T>(
+    context: context,
+    useSafeArea: true,
+    showDragHandle: true,
+    isScrollControlled: true,
+    backgroundColor: colors.surface,
+    builder: (sheetContext) => ConstrainedBox(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.sizeOf(sheetContext).height * 0.72,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+            child: Text(
+              title,
+              style: TextStyle(
+                color: colors.primaryText,
+                fontSize: 19,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          Flexible(
+            child: ListView.separated(
+              shrinkWrap: true,
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+              itemCount: options.length,
+              separatorBuilder: (_, _) => const SizedBox(height: 4),
+              itemBuilder: (context, index) {
+                final option = options[index];
+                final selected = option.value == selectedValue;
+                final foreground = option.destructive
+                    ? colors.danger
+                    : colors.primaryText;
+                return Material(
+                  color: selected ? colors.accentSoft : Colors.transparent,
+                  borderRadius: BorderRadius.circular(8),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: () => Navigator.pop(sheetContext, option.value),
+                    child: SizedBox(
+                      height: 52,
+                      child: Row(
+                        children: [
+                          const SizedBox(width: 12),
+                          if (option.icon != null) ...[
+                            Icon(option.icon, size: 19, color: foreground),
+                            const SizedBox(width: 12),
+                          ],
+                          Expanded(
+                            child: Text(
+                              option.label,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: foreground,
+                                fontSize: 14,
+                                fontWeight: selected
+                                    ? FontWeight.w600
+                                    : FontWeight.w400,
+                              ),
+                            ),
+                          ),
+                          if (selected)
+                            Icon(Icons.check, size: 20, color: colors.accent),
+                          const SizedBox(width: 14),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+Future<bool> _showMobileConfirmationSheet({
+  required BuildContext context,
+  required _MobileColors colors,
+  required String title,
+  required String message,
+  required String confirmLabel,
+  bool destructive = false,
+}) async {
+  return await showModalBottomSheet<bool>(
+        context: context,
+        useSafeArea: true,
+        showDragHandle: true,
+        backgroundColor: colors.surface,
+        builder: (sheetContext) => Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 46,
+                height: 46,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: destructive ? colors.dangerSoft : colors.accentSoft,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  destructive ? Icons.warning_amber : Icons.info_outline,
+                  size: 23,
+                  color: destructive ? colors.danger : colors.accent,
+                ),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: colors.primaryText,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 7),
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: colors.secondaryText,
+                  fontSize: 13,
+                  height: 1.45,
+                ),
+              ),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Expanded(
+                    child: _MobileCompactTextButton(
+                      colors: colors,
+                      label: 'キャンセル',
+                      onPressed: () => Navigator.pop(sheetContext, false),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _MobileCompactTextButton(
+                      colors: colors,
+                      label: confirmLabel,
+                      prominent: !destructive,
+                      destructive: destructive,
+                      onPressed: () => Navigator.pop(sheetContext, true),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ) ??
+      false;
 }
 
 class _MobileCircleIconButton extends StatelessWidget {
@@ -1362,16 +1789,12 @@ class _MobileCircleIconButton extends StatelessWidget {
     required this.icon,
     required this.tooltip,
     required this.onPressed,
-    this.size = 28,
-    this.iconSize = 14,
   });
 
   final _MobileColors colors;
   final IconData icon;
   final String tooltip;
   final VoidCallback onPressed;
-  final double size;
-  final double iconSize;
 
   @override
   Widget build(BuildContext context) {
@@ -1379,14 +1802,14 @@ class _MobileCircleIconButton extends StatelessWidget {
       message: tooltip,
       child: Material(
         color: colors.headerControl,
-        shape: const CircleBorder(),
+        borderRadius: BorderRadius.circular(8),
         child: InkWell(
-          customBorder: const CircleBorder(),
+          borderRadius: BorderRadius.circular(8),
           onTap: onPressed,
           child: SizedBox(
-            width: size,
-            height: size,
-            child: Icon(icon, size: iconSize, color: colors.utility),
+            width: 44,
+            height: 44,
+            child: Icon(icon, size: 19, color: colors.utility),
           ),
         ),
       ),
@@ -1400,8 +1823,7 @@ class _MobileUtilityButton extends StatelessWidget {
     required this.icon,
     required this.tooltip,
     required this.onPressed,
-    this.size = 32,
-    this.destructive = false,
+    this.size = 44,
   });
 
   final _MobileColors colors;
@@ -1409,7 +1831,6 @@ class _MobileUtilityButton extends StatelessWidget {
   final String tooltip;
   final VoidCallback onPressed;
   final double size;
-  final bool destructive;
 
   @override
   Widget build(BuildContext context) {
@@ -1417,9 +1838,9 @@ class _MobileUtilityButton extends StatelessWidget {
       message: tooltip,
       child: Material(
         color: colors.buttonBackground,
-        borderRadius: BorderRadius.circular(7),
+        borderRadius: BorderRadius.circular(8),
         child: InkWell(
-          borderRadius: BorderRadius.circular(7),
+          borderRadius: BorderRadius.circular(8),
           onTap: onPressed,
           child: Container(
             width: size,
@@ -1427,46 +1848,10 @@ class _MobileUtilityButton extends StatelessWidget {
             alignment: Alignment.center,
             decoration: BoxDecoration(
               border: Border.all(color: colors.buttonBorder),
-              borderRadius: BorderRadius.circular(7),
+              borderRadius: BorderRadius.circular(8),
             ),
-            child: Icon(
-              icon,
-              size: 16,
-              color: destructive ? const Color(0xFFC94848) : colors.utility,
-            ),
+            child: Icon(icon, size: 19, color: colors.utility),
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _MobileSmallPill extends StatelessWidget {
-  const _MobileSmallPill({required this.colors, required this.label});
-
-  final _MobileColors colors;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 26,
-      constraints: const BoxConstraints(maxWidth: 142),
-      padding: const EdgeInsets.symmetric(horizontal: 9),
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: colors.buttonBackground,
-        border: Border.all(color: colors.buttonBorder),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        label,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          color: colors.primaryText,
-          fontSize: 11,
-          fontFeatures: const [FontFeature.tabularFigures()],
         ),
       ),
     );
@@ -1488,12 +1873,12 @@ class _MobileSplitModeControl extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 26,
-      width: 174,
+      height: 44,
+      width: 166,
       padding: const EdgeInsets.all(2),
       decoration: BoxDecoration(
         color: colors.headerControl,
-        borderRadius: BorderRadius.circular(7),
+        borderRadius: BorderRadius.circular(8),
       ),
       child: Row(
         children: [
@@ -1520,22 +1905,30 @@ class _MobileSplitModeControl extends StatelessWidget {
     final selected = this.mode == mode;
     return Expanded(
       child: InkWell(
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(7),
         onTap: () => onChanged(mode),
         child: Container(
           alignment: Alignment.center,
           decoration: BoxDecoration(
             color: selected ? colors.selectedChip : Colors.transparent,
-            borderRadius: BorderRadius.circular(6),
+            borderRadius: BorderRadius.circular(7),
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, size: 13, color: colors.utility),
+              Icon(
+                icon,
+                size: 14,
+                color: selected ? colors.accent : colors.utility,
+              ),
               const SizedBox(width: 4),
               Text(
                 label,
-                style: TextStyle(color: colors.primaryText, fontSize: 11),
+                style: TextStyle(
+                  color: selected ? colors.accent : colors.primaryText,
+                  fontSize: 11,
+                  fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                ),
               ),
             ],
           ),
@@ -1571,17 +1964,17 @@ class _MobileCompactTextButton extends StatelessWidget {
         ? Colors.white
         : colors.primaryText;
     return SizedBox(
-      height: 30,
+      height: 44,
       child: TextButton(
         onPressed: onPressed,
         style: TextButton.styleFrom(
           foregroundColor: foreground,
           backgroundColor: background,
-          padding: const EdgeInsets.symmetric(horizontal: 11),
+          padding: const EdgeInsets.symmetric(horizontal: 15),
           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
           textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(7),
+            borderRadius: BorderRadius.circular(8),
             side: BorderSide(
               color: prominent || destructive
                   ? Colors.transparent
@@ -1599,50 +1992,62 @@ class _MobileMenuPill extends StatelessWidget {
   const _MobileMenuPill({
     required this.colors,
     required this.label,
+    required this.tooltip,
+    required this.onPressed,
     this.accent = false,
   });
 
   final _MobileColors colors;
   final String label;
+  final String tooltip;
+  final VoidCallback onPressed;
   final bool accent;
 
   @override
   Widget build(BuildContext context) {
     final foreground = accent ? colors.accent : colors.primaryText;
-    return Container(
-      height: 26,
-      constraints: const BoxConstraints(minWidth: 62, maxWidth: 126),
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: accent
-            ? colors.accent.withValues(alpha: 0.12)
-            : colors.buttonBackground,
-        border: Border.all(
-          color: accent
-              ? colors.accent.withValues(alpha: 0.38)
-              : colors.buttonBorder,
-        ),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Flexible(
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: foreground,
-                fontSize: 10,
-                fontWeight: accent ? FontWeight.w700 : FontWeight.w500,
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: accent ? colors.accentSoft : colors.buttonBackground,
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: onPressed,
+          child: Container(
+            height: 44,
+            constraints: const BoxConstraints(minWidth: 78, maxWidth: 154),
+            padding: const EdgeInsets.symmetric(horizontal: 11),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              border: Border.all(
+                color: accent
+                    ? colors.accent.withValues(alpha: 0.28)
+                    : colors.buttonBorder,
               ),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: foreground,
+                      fontSize: 12,
+                      fontWeight: accent ? FontWeight.w700 : FontWeight.w500,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 3),
+                Icon(Icons.keyboard_arrow_down, size: 16, color: foreground),
+              ],
             ),
           ),
-          const SizedBox(width: 2),
-          Icon(Icons.arrow_drop_down, size: 12, color: foreground),
-        ],
+        ),
       ),
     );
   }
@@ -1689,63 +2094,59 @@ class _MobileTextEditorDialogState extends State<_MobileTextEditorDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      backgroundColor: widget.colors.background,
-      surfaceTintColor: Colors.transparent,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(10),
-        side: BorderSide(color: widget.colors.border),
+    return AnimatedPadding(
+      duration: const Duration(milliseconds: 160),
+      padding: EdgeInsets.only(
+        left: 20,
+        right: 20,
+        bottom: MediaQuery.viewInsetsOf(context).bottom + 20,
       ),
-      titlePadding: const EdgeInsets.fromLTRB(18, 16, 18, 0),
-      contentPadding: const EdgeInsets.fromLTRB(18, 12, 18, 8),
-      actionsPadding: const EdgeInsets.fromLTRB(18, 4, 18, 14),
-      title: Text(
-        widget.title,
-        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            widget.title,
+            style: TextStyle(
+              color: widget.colors.primaryText,
+              fontSize: 19,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 14),
+          TextField(
+            key: const ValueKey<String>('mobile-name-editor-field'),
+            controller: _controller,
+            autofocus: true,
+            maxLines: 1,
+            textInputAction: TextInputAction.done,
+            onSubmitted: (_) => _save(),
+            style: const TextStyle(fontSize: 15),
+            decoration: _mobileFieldDecoration(widget.colors),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: _MobileCompactTextButton(
+                  colors: widget.colors,
+                  label: 'キャンセル',
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _MobileCompactTextButton(
+                  colors: widget.colors,
+                  label: '保存',
+                  prominent: true,
+                  onPressed: _save,
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
-      content: TextField(
-        key: const ValueKey<String>('mobile-name-editor-field'),
-        controller: _controller,
-        autofocus: true,
-        maxLines: 1,
-        textInputAction: TextInputAction.done,
-        onSubmitted: (_) => _save(),
-        style: const TextStyle(fontSize: 13),
-        decoration: InputDecoration(
-          isDense: true,
-          filled: true,
-          fillColor: widget.colors.control,
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 10,
-            vertical: 9,
-          ),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(6),
-            borderSide: BorderSide(color: widget.colors.border),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(6),
-            borderSide: BorderSide(color: widget.colors.border),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(6),
-            borderSide: BorderSide(color: widget.colors.border),
-          ),
-        ),
-      ),
-      actions: [
-        _MobileCompactTextButton(
-          colors: widget.colors,
-          label: 'キャンセル',
-          onPressed: () => Navigator.pop(context),
-        ),
-        _MobileCompactTextButton(
-          colors: widget.colors,
-          label: '保存',
-          prominent: true,
-          onPressed: _save,
-        ),
-      ],
     );
   }
 }
@@ -1766,31 +2167,31 @@ class _MobilePageHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 48,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: BoxDecoration(
-        color: colors.surface,
-        border: Border(bottom: BorderSide(color: colors.border)),
-      ),
+      height: 64,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      color: colors.surface,
       child: Row(
         children: [
           _MobileUtilityButton(
             colors: colors,
             icon: Icons.close,
             tooltip: '閉じる',
-            size: 32,
+            size: 44,
             onPressed: onClose,
           ),
-          const SizedBox(width: 10),
-          Text(
-            title,
-            style: TextStyle(
-              color: colors.primaryText,
-              fontSize: 15,
-              fontWeight: FontWeight.w700,
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: colors.primaryText,
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
-          const Spacer(),
           ...actions,
         ],
       ),
@@ -1825,7 +2226,7 @@ class _MobileGuideScreenState extends State<_MobileGuideScreen> {
         '上部のセッション名から、表示するセッションを切り替えられます。',
         '表示中のセッション名をタップすると、名前を編集できます。',
         'プラスボタンで新しいセッションを追加します。追加や切り替えを行うと、計測中のセッションは停止します。',
-        '下部のボタンから、現在のセッションをリセットまたは削除できます。',
+        '下部のその他ボタンから、現在のセッションをリセットまたは削除できます。',
       ],
     ),
     _MobileGuideSection(
@@ -1885,7 +2286,7 @@ class _MobileGuideScreenState extends State<_MobileGuideScreen> {
             ),
             Expanded(
               child: ListView.separated(
-                padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
                 itemCount: _sections.length,
                 separatorBuilder: (_, _) => const SizedBox(height: 8),
                 itemBuilder: (context, index) {
@@ -1911,8 +2312,8 @@ class _MobileGuideScreenState extends State<_MobileGuideScreen> {
                             },
                             child: Padding(
                               padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 11,
+                                horizontal: 14,
+                                vertical: 13,
                               ),
                               child: Row(
                                 children: [
@@ -1924,7 +2325,7 @@ class _MobileGuideScreenState extends State<_MobileGuideScreen> {
                                         Text(
                                           section.title,
                                           style: const TextStyle(
-                                            fontSize: 14,
+                                            fontSize: 15,
                                             fontWeight: FontWeight.w600,
                                           ),
                                         ),
@@ -1933,7 +2334,7 @@ class _MobileGuideScreenState extends State<_MobileGuideScreen> {
                                           section.summary,
                                           style: TextStyle(
                                             color: colors.secondaryText,
-                                            fontSize: 11,
+                                            fontSize: 12,
                                           ),
                                         ),
                                       ],
@@ -1953,7 +2354,7 @@ class _MobileGuideScreenState extends State<_MobileGuideScreen> {
                           if (expanded)
                             Container(
                               width: double.infinity,
-                              padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+                              padding: const EdgeInsets.fromLTRB(14, 12, 14, 5),
                               decoration: BoxDecoration(
                                 color: colors.control,
                                 border: Border(
@@ -1987,8 +2388,8 @@ class _MobileGuideScreenState extends State<_MobileGuideScreen> {
                                             child: Text(
                                               detail,
                                               style: const TextStyle(
-                                                fontSize: 12,
-                                                height: 1.45,
+                                                fontSize: 13,
+                                                height: 1.5,
                                               ),
                                             ),
                                           ),
@@ -2106,24 +2507,25 @@ class _MobileMemoScreenState extends State<_MobileMemoScreen> {
               ),
               Expanded(
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 14, 14, 16),
+                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         'Split名',
                         style: TextStyle(
-                          fontSize: 11,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
                           color: colors.secondaryText,
                         ),
                       ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 7),
                       TextField(
                         controller: _labelController,
                         maxLines: 1,
                         textInputAction: TextInputAction.done,
                         style: TextStyle(
-                          fontSize: 13,
+                          fontSize: 15,
                           color: colors.primaryText,
                         ),
                         decoration: _mobileFieldDecoration(
@@ -2132,38 +2534,54 @@ class _MobileMemoScreenState extends State<_MobileMemoScreen> {
                           dense: true,
                         ),
                       ),
-                      const SizedBox(height: 9),
-                      Row(
-                        children: [
-                          Text(
-                            '経過時間',
-                            style: TextStyle(
-                              fontSize: 11,
+                      const SizedBox(height: 12),
+                      Container(
+                        height: 46,
+                        padding: const EdgeInsets.symmetric(horizontal: 13),
+                        decoration: BoxDecoration(
+                          color: colors.control,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.schedule,
+                              size: 18,
                               color: colors.secondaryText,
                             ),
-                          ),
-                          const Spacer(),
-                          Text(
-                            widget.elapsedText,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: colors.primaryText,
-                              fontFeatures: const [
-                                FontFeature.tabularFigures(),
-                              ],
+                            const SizedBox(width: 9),
+                            Text(
+                              '経過時間',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: colors.secondaryText,
+                              ),
                             ),
-                          ),
-                        ],
+                            const Spacer(),
+                            Text(
+                              widget.elapsedText,
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: colors.primaryText,
+                                fontFeatures: const [
+                                  FontFeature.tabularFigures(),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                      const SizedBox(height: 9),
+                      const SizedBox(height: 14),
                       Text(
                         'メモ',
                         style: TextStyle(
-                          fontSize: 11,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
                           color: colors.secondaryText,
                         ),
                       ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 7),
                       Expanded(
                         child: TextField(
                           key: const ValueKey<String>('mobile-memo-field'),
@@ -2174,8 +2592,8 @@ class _MobileMemoScreenState extends State<_MobileMemoScreen> {
                           textAlignVertical: TextAlignVertical.top,
                           style: TextStyle(
                             color: colors.primaryText,
-                            fontSize: 12,
-                            height: 1.35,
+                            fontSize: 14,
+                            height: 1.45,
                           ),
                           decoration: _mobileFieldDecoration(
                             colors,
@@ -2315,6 +2733,66 @@ class _MobileSummaryScreenState extends State<_MobileSummaryScreen> {
     });
   }
 
+  Future<void> _selectFormat() async {
+    final selected = await _showMobileSelectionSheet<String>(
+      context: context,
+      colors: widget.colors,
+      title: 'サマリー表示フォーマット',
+      selectedValue: _formatId,
+      options: [
+        for (final format in _formats)
+          _MobileSelectionOption<String>(
+            value: format.id,
+            label: format.id == templateSummaryFormatId
+                ? 'テンプレート'
+                : format.name,
+            icon: Icons.format_align_left,
+          ),
+        const _MobileSelectionOption<String>(
+          value: '_add',
+          label: 'カスタムを追加',
+          icon: Icons.add,
+        ),
+      ],
+    );
+    if (!mounted || selected == null) {
+      return;
+    }
+    if (selected == '_add') {
+      await _createCustomFormat();
+      return;
+    }
+    setState(() {
+      _formatId = selected;
+      _regenerate();
+    });
+  }
+
+  Future<void> _selectTimeFormat() async {
+    const formats = ['hourMinute', 'decimalHours', 'decimalHoursPrecise'];
+    final selected = await _showMobileSelectionSheet<String>(
+      context: context,
+      colors: widget.colors,
+      title: '時間表示形式',
+      selectedValue: _timeFormat,
+      options: [
+        for (final format in formats)
+          _MobileSelectionOption<String>(
+            value: format,
+            label: _summaryTimeOptionLabel(format),
+            icon: Icons.schedule,
+          ),
+      ],
+    );
+    if (!mounted || selected == null) {
+      return;
+    }
+    setState(() {
+      _timeFormat = selected;
+      _regenerate();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = widget.colors;
@@ -2341,97 +2819,33 @@ class _MobileSummaryScreenState extends State<_MobileSummaryScreen> {
                     colors: colors,
                     icon: Icons.copy_outlined,
                     tooltip: 'コピー',
-                    size: 32,
                     onPressed: _copy,
                   ),
                 ],
               ),
               Expanded(
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 16),
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
                   child: Column(
                     children: [
                       Row(
                         children: [
-                          PopupMenuButton<String>(
+                          _MobileMenuPill(
+                            colors: colors,
+                            label: selectedFormat.name,
                             tooltip: 'サマリー表示フォーマット',
-                            initialValue: _formatId,
-                            onSelected: (value) {
-                              if (value == '_add') {
-                                _createCustomFormat();
-                                return;
-                              }
-                              setState(() {
-                                _formatId = value;
-                                _regenerate();
-                              });
-                            },
-                            itemBuilder: (context) => [
-                              for (final format in _formats)
-                                PopupMenuItem<String>(
-                                  value: format.id,
-                                  height: 36,
-                                  child: Text(
-                                    format.id == templateSummaryFormatId
-                                        ? 'テンプレート'
-                                        : format.name,
-                                    style: const TextStyle(fontSize: 12),
-                                  ),
-                                ),
-                              const PopupMenuDivider(height: 8),
-                              const PopupMenuItem<String>(
-                                value: '_add',
-                                height: 36,
-                                child: Row(
-                                  children: [
-                                    Icon(Icons.add, size: 14),
-                                    SizedBox(width: 6),
-                                    Text(
-                                      'カスタムを追加',
-                                      style: TextStyle(fontSize: 12),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                            child: _MobileMenuPill(
-                              colors: colors,
-                              label: selectedFormat.name,
-                              accent: true,
-                            ),
+                            accent: true,
+                            onPressed: _selectFormat,
                           ),
                           const SizedBox(width: 6),
-                          PopupMenuButton<String>(
-                            tooltip: '時間表示形式',
-                            initialValue: _timeFormat,
-                            onSelected: (value) {
-                              setState(() {
-                                _timeFormat = value;
-                                _regenerate();
-                              });
-                            },
-                            itemBuilder: (context) => [
-                              for (final format in const [
-                                'hourMinute',
-                                'decimalHours',
-                                'decimalHoursPrecise',
-                              ])
-                                PopupMenuItem<String>(
-                                  value: format,
-                                  height: 36,
-                                  child: Text(
-                                    _summaryTimeOptionLabel(format),
-                                    style: const TextStyle(fontSize: 12),
-                                  ),
-                                ),
-                            ],
-                            child: _MobileMenuPill(
-                              colors: colors,
-                              label: _formatSummaryDuration(
-                                totalSeconds,
-                                _timeFormat,
-                              ),
+                          _MobileMenuPill(
+                            colors: colors,
+                            label: _formatSummaryDuration(
+                              totalSeconds,
+                              _timeFormat,
                             ),
+                            tooltip: '時間表示形式',
+                            onPressed: _selectTimeFormat,
                           ),
                           const SizedBox(width: 8),
                           Expanded(
@@ -2442,13 +2856,14 @@ class _MobileSummaryScreenState extends State<_MobileSummaryScreen> {
                               textAlign: TextAlign.end,
                               style: TextStyle(
                                 color: colors.secondaryText,
-                                fontSize: 10,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
                               ),
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 12),
                       Expanded(
                         child: TextField(
                           key: const ValueKey<String>('mobile-summary-field'),
@@ -2459,8 +2874,8 @@ class _MobileSummaryScreenState extends State<_MobileSummaryScreen> {
                           textAlignVertical: TextAlignVertical.top,
                           style: TextStyle(
                             color: colors.primaryText,
-                            fontSize: 12,
-                            height: 1.35,
+                            fontSize: 14,
+                            height: 1.5,
                           ),
                           decoration: _mobileFieldDecoration(colors),
                         ),
@@ -2650,39 +3065,71 @@ class _MobileSettingsScreenState extends State<_MobileSettingsScreen> {
     });
   }
 
+  Future<void> _selectSummaryFormat() async {
+    final selected = await _showMobileSelectionSheet<String>(
+      context: context,
+      colors: _MobileColors(isMonochrome: _isMonochrome),
+      title: 'サマリー表示フォーマット',
+      selectedValue: _selectedFormatId,
+      options: [
+        for (final format in _formats)
+          _MobileSelectionOption<String>(
+            value: format.id,
+            label: format.id == templateSummaryFormatId
+                ? 'テンプレート'
+                : format.name,
+            icon: Icons.format_align_left,
+          ),
+        const _MobileSelectionOption<String>(
+          value: '_add',
+          label: 'カスタムを追加',
+          icon: Icons.add,
+        ),
+      ],
+    );
+    if (!mounted || selected == null) {
+      return;
+    }
+    if (selected == '_add') {
+      await _addCustomFormat();
+      return;
+    }
+    setState(() => _selectedFormatId = selected);
+  }
+
+  Future<void> _selectSummaryTimeFormat() async {
+    const formats = ['hourMinute', 'decimalHours', 'decimalHoursPrecise'];
+    final selected = await _showMobileSelectionSheet<String>(
+      context: context,
+      colors: _MobileColors(isMonochrome: _isMonochrome),
+      title: '時間表示形式',
+      selectedValue: _timeFormat,
+      options: [
+        for (final format in formats)
+          _MobileSelectionOption<String>(
+            value: format,
+            label: _summaryTimeOptionLabel(format),
+            icon: Icons.schedule,
+          ),
+      ],
+    );
+    if (!mounted || selected == null) {
+      return;
+    }
+    setState(() => _timeFormat = selected);
+  }
+
   Future<void> _requestDataAction(_MobileSettingsDataAction action) async {
     final colors = _MobileColors(isMonochrome: _isMonochrome);
-    final confirmed = await showDialog<bool>(
+    final confirmed = await _showMobileConfirmationSheet(
       context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: colors.background,
-        surfaceTintColor: Colors.transparent,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
-          side: BorderSide(color: colors.border),
-        ),
-        title: Text(
-          action.title,
-          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
-        ),
-        content: Text(action.message, style: const TextStyle(fontSize: 12)),
-        actions: [
-          _MobileCompactTextButton(
-            colors: colors,
-            label: 'キャンセル',
-            onPressed: () => Navigator.pop(context, false),
-          ),
-          _MobileCompactTextButton(
-            colors: colors,
-            label: action.confirmLabel,
-            prominent: !action.destructive,
-            destructive: action.destructive,
-            onPressed: () => Navigator.pop(context, true),
-          ),
-        ],
-      ),
+      colors: colors,
+      title: action.title,
+      message: action.message,
+      confirmLabel: action.confirmLabel,
+      destructive: action.destructive,
     );
-    if (confirmed == true && mounted) {
+    if (confirmed && mounted) {
       _close(action);
     }
   }
@@ -2798,48 +3245,11 @@ class _MobileSettingsScreenState extends State<_MobileSettingsScreen> {
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              PopupMenuButton<String>(
+                              _MobileMenuPill(
+                                colors: colors,
+                                label: selectedFormat.name,
                                 tooltip: '表示フォーマットを選択',
-                                initialValue: _selectedFormatId,
-                                onSelected: (value) {
-                                  if (value == '_add') {
-                                    _addCustomFormat();
-                                  } else {
-                                    setState(() => _selectedFormatId = value);
-                                  }
-                                },
-                                itemBuilder: (context) => [
-                                  for (final format in _formats)
-                                    PopupMenuItem<String>(
-                                      value: format.id,
-                                      height: 36,
-                                      child: Text(
-                                        format.id == templateSummaryFormatId
-                                            ? 'テンプレート'
-                                            : format.name,
-                                        style: const TextStyle(fontSize: 12),
-                                      ),
-                                    ),
-                                  const PopupMenuDivider(height: 8),
-                                  const PopupMenuItem<String>(
-                                    value: '_add',
-                                    height: 36,
-                                    child: Row(
-                                      children: [
-                                        Icon(Icons.add, size: 14),
-                                        SizedBox(width: 6),
-                                        Text(
-                                          'カスタムを追加',
-                                          style: TextStyle(fontSize: 12),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                                child: _MobileMenuPill(
-                                  colors: colors,
-                                  label: selectedFormat.name,
-                                ),
+                                onPressed: _selectSummaryFormat,
                               ),
                               const SizedBox(width: 5),
                               _MobileUtilityButton(
@@ -2850,7 +3260,6 @@ class _MobileSettingsScreenState extends State<_MobileSettingsScreen> {
                                 tooltip: selectedFormat.isBuiltIn
                                     ? 'カスタムを追加'
                                     : 'カスタムを編集',
-                                size: 28,
                                 onPressed: _editSelectedFormat,
                               ),
                             ],
@@ -2860,31 +3269,11 @@ class _MobileSettingsScreenState extends State<_MobileSettingsScreen> {
                         _MobileSettingsRow(
                           colors: colors,
                           title: '時間表示形式',
-                          trailing: PopupMenuButton<String>(
+                          trailing: _MobileMenuPill(
+                            colors: colors,
+                            label: _summaryTimeOptionLabel(_timeFormat),
                             tooltip: '時間表示形式を選択',
-                            initialValue: _timeFormat,
-                            onSelected: (value) {
-                              setState(() => _timeFormat = value);
-                            },
-                            itemBuilder: (context) => [
-                              for (final format in const [
-                                'hourMinute',
-                                'decimalHours',
-                                'decimalHoursPrecise',
-                              ])
-                                PopupMenuItem<String>(
-                                  value: format,
-                                  height: 36,
-                                  child: Text(
-                                    _summaryTimeOptionLabel(format),
-                                    style: const TextStyle(fontSize: 12),
-                                  ),
-                                ),
-                            ],
-                            child: _MobileMenuPill(
-                              colors: colors,
-                              label: _summaryTimeOptionLabel(_timeFormat),
-                            ),
+                            onPressed: _selectSummaryTimeFormat,
                           ),
                         ),
                       ],
@@ -3005,19 +3394,19 @@ class _MobileSettingsSection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.only(left: 2, bottom: 6),
+          padding: const EdgeInsets.only(left: 2, bottom: 8),
           child: Text(
             label,
             style: TextStyle(
               color: colors.secondaryText,
-              fontSize: 10,
+              fontSize: 11,
               fontWeight: FontWeight.w600,
             ),
           ),
         ),
         Container(
           width: double.infinity,
-          padding: const EdgeInsets.all(10),
+          padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             color: colors.section,
             border: Border.all(color: colors.border),
@@ -3054,13 +3443,17 @@ class _MobileSettingsRow extends StatelessWidget {
             children: [
               Text(
                 title,
-                style: TextStyle(color: colors.primaryText, fontSize: 12),
+                style: TextStyle(
+                  color: colors.primaryText,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
               if (subtitle != null) ...[
                 const SizedBox(height: 3),
                 Text(
                   subtitle!,
-                  style: TextStyle(color: colors.secondaryText, fontSize: 9),
+                  style: TextStyle(color: colors.secondaryText, fontSize: 10),
                 ),
               ],
             ],
@@ -3091,7 +3484,7 @@ class _MobileChoiceBar<T> extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 28,
+      height: 44,
       padding: const EdgeInsets.all(2),
       decoration: BoxDecoration(
         color: colors.headerControl,
@@ -3116,7 +3509,7 @@ class _MobileChoiceBar<T> extends StatelessWidget {
                     labels[index],
                     style: TextStyle(
                       color: colors.primaryText,
-                      fontSize: 10,
+                      fontSize: 11,
                       fontWeight: values[index] == selected
                           ? FontWeight.w600
                           : FontWeight.w400,
@@ -3147,7 +3540,7 @@ class _MobileStepper extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 28,
+      height: 44,
       decoration: BoxDecoration(
         color: colors.buttonBackground,
         border: Border.all(color: colors.buttonBorder),
@@ -3158,11 +3551,11 @@ class _MobileStepper extends StatelessWidget {
         children: [
           _button(Icons.remove, onDecrease),
           SizedBox(
-            width: 54,
+            width: 58,
             child: Text(
               value,
               textAlign: TextAlign.center,
-              style: TextStyle(color: colors.primaryText, fontSize: 10),
+              style: TextStyle(color: colors.primaryText, fontSize: 11),
             ),
           ),
           _button(Icons.add, onIncrease),
@@ -3175,11 +3568,11 @@ class _MobileStepper extends StatelessWidget {
     return InkWell(
       onTap: onPressed,
       child: SizedBox(
-        width: 27,
-        height: 27,
+        width: 42,
+        height: 42,
         child: Icon(
           icon,
-          size: 13,
+          size: 15,
           color: onPressed == null ? colors.softText : colors.utility,
         ),
       ),
@@ -3204,31 +3597,35 @@ class _MobileSettingsActionRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = destructive ? const Color(0xFFC94848) : colors.primaryText;
+    final color = destructive ? colors.danger : colors.primaryText;
     return Material(
       color: colors.buttonBackground,
-      borderRadius: BorderRadius.circular(7),
+      borderRadius: BorderRadius.circular(8),
       child: InkWell(
-        borderRadius: BorderRadius.circular(7),
+        borderRadius: BorderRadius.circular(8),
         onTap: onPressed,
         child: Container(
-          height: 38,
-          padding: const EdgeInsets.symmetric(horizontal: 10),
+          height: 50,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
           decoration: BoxDecoration(
             border: Border.all(color: colors.buttonBorder),
-            borderRadius: BorderRadius.circular(7),
+            borderRadius: BorderRadius.circular(8),
           ),
           child: Row(
             children: [
-              Icon(icon, size: 15, color: color),
-              const SizedBox(width: 8),
+              Icon(icon, size: 19, color: color),
+              const SizedBox(width: 11),
               Expanded(
                 child: Text(
                   title,
-                  style: TextStyle(color: color, fontSize: 12),
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
               ),
-              Icon(Icons.chevron_right, size: 16, color: colors.secondaryText),
+              Icon(Icons.chevron_right, size: 19, color: colors.secondaryText),
             ],
           ),
         ),
@@ -3363,35 +3760,15 @@ class _MobileSummaryFormatEditorScreenState
   }
 
   Future<void> _delete() async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await _showMobileConfirmationSheet(
       context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: widget.colors.background,
-        surfaceTintColor: Colors.transparent,
-        title: Text(
-          '${widget.initialFormat.name}を削除しますか？',
-          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
-        ),
-        content: const Text(
-          'このカスタムフォーマットと置換ルールを削除します。',
-          style: TextStyle(fontSize: 12),
-        ),
-        actions: [
-          _MobileCompactTextButton(
-            colors: widget.colors,
-            label: 'キャンセル',
-            onPressed: () => Navigator.pop(context, false),
-          ),
-          _MobileCompactTextButton(
-            colors: widget.colors,
-            label: '削除',
-            destructive: true,
-            onPressed: () => Navigator.pop(context, true),
-          ),
-        ],
-      ),
+      colors: widget.colors,
+      title: '${widget.initialFormat.name}を削除しますか？',
+      message: 'このカスタムフォーマットと置換ルールを削除します。',
+      confirmLabel: '削除',
+      destructive: true,
     );
-    if (confirmed == true && mounted) {
+    if (confirmed && mounted) {
       Navigator.pop(context, const _MobileFormatEditorResult(deleted: true));
     }
   }
@@ -3830,8 +4207,8 @@ class _MobileTokenButton extends StatelessWidget {
         borderRadius: BorderRadius.circular(4),
         onTap: onPressed,
         child: Container(
-          height: 22,
-          padding: const EdgeInsets.symmetric(horizontal: 6),
+          height: 32,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
           alignment: Alignment.center,
           decoration: BoxDecoration(
             border: Border.all(color: colors.accent.withValues(alpha: 0.42)),
@@ -3884,9 +4261,9 @@ class _MobileMiniIconButton extends StatelessWidget {
       borderRadius: BorderRadius.circular(4),
       onTap: enabled ? onPressed : null,
       child: SizedBox(
-        width: 28,
-        height: 28,
-        child: Icon(icon, size: 15, color: color),
+        width: 36,
+        height: 36,
+        child: Icon(icon, size: 17, color: color),
       ),
     );
   }
@@ -3928,66 +4305,6 @@ void _mobileInsertToken(TextEditingController controller, String token) {
     text: controller.text.replaceRange(start, end, token),
     selection: TextSelection.collapsed(offset: start + token.length),
   );
-}
-
-class _MobileSessionTitle extends StatelessWidget {
-  const _MobileSessionTitle({required this.colors, required this.title});
-
-  final _MobileColors colors;
-  final String title;
-
-  @override
-  Widget build(BuildContext context) {
-    final style = TextStyle(
-      color: colors.primaryText,
-      fontSize: 17,
-      fontWeight: FontWeight.w600,
-    );
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final direction = Directionality.of(context);
-        final painter = TextPainter(
-          text: TextSpan(text: title, style: style),
-          maxLines: 1,
-          textDirection: direction,
-        )..layout(maxWidth: math.max(0, constraints.maxWidth - 21));
-        final underlineWidth = math
-            .max(42.0, painter.width + 21)
-            .clamp(0.0, constraints.maxWidth);
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Flexible(
-                  child: Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: style,
-                  ),
-                ),
-                const SizedBox(width: 6),
-                Icon(
-                  Icons.edit_outlined,
-                  size: 13,
-                  color: colors.secondaryText,
-                ),
-              ],
-            ),
-            const SizedBox(height: 2),
-            Container(
-              width: underlineWidth,
-              height: 1,
-              color: colors.primaryText,
-            ),
-          ],
-        );
-      },
-    );
-  }
 }
 
 class _MobileTimelinePainter extends CustomPainter {
@@ -4145,82 +4462,70 @@ class _MobileColors {
 
   final bool isMonochrome;
 
-  Color get background => surface;
+  Color get background =>
+      isMonochrome ? const Color(0xFFF3F3F4) : const Color(0xFFF5F7FA);
   Color get surface =>
-      isMonochrome ? const Color(0xFFF2F2F2) : const Color(0xFFE8ECEC);
-  Color get section => isMonochrome
-      ? Colors.black.withValues(alpha: 0.06)
-      : Colors.white.withValues(alpha: 0.55);
-  Color get lapCard => isMonochrome
-      ? Colors.black.withValues(alpha: 0.05)
-      : Colors.white.withValues(alpha: 0.52);
-  Color get control => isMonochrome
-      ? Colors.white.withValues(alpha: 0.76)
-      : Colors.white.withValues(alpha: 0.70);
-  Color get primaryText => const Color(0xFF101318);
-  Color get secondaryText => Colors.black.withValues(alpha: 0.58);
-  Color get softText => Colors.black.withValues(alpha: 0.24);
-  Color get utility => const Color(0xFF3C3C3C);
+      isMonochrome ? const Color(0xFFFAFAFA) : const Color(0xFFFFFFFF);
+  Color get section => surface;
+  Color get lapCard => surface;
+  Color get control =>
+      isMonochrome ? const Color(0xFFEDEDEF) : const Color(0xFFEEF2F6);
+  Color get primaryText => const Color(0xFF171A21);
+  Color get secondaryText => const Color(0xFF667085);
+  Color get softText => const Color(0xFFA8B0BD);
+  Color get utility => const Color(0xFF475467);
   Color get accent =>
-      isMonochrome ? const Color(0xFF404040) : const Color(0xFF0A84FF);
-  Color get border => isMonochrome
-      ? Colors.black.withValues(alpha: 0.24)
-      : Colors.black.withValues(alpha: 0.13);
-  Color get strongBorder => isMonochrome
-      ? Colors.black.withValues(alpha: 0.38)
-      : Colors.black.withValues(alpha: 0.28);
-  Color get headerControl => isMonochrome
-      ? Colors.black.withValues(alpha: 0.14)
-      : Colors.black.withValues(alpha: 0.08);
-  Color get selectedChip => isMonochrome
-      ? Colors.black.withValues(alpha: 0.20)
-      : Colors.black.withValues(alpha: 0.14);
-  Color get selectedRow => isMonochrome
-      ? Colors.black.withValues(alpha: 0.12)
-      : Colors.white.withValues(alpha: 0.82);
-  Color get buttonBackground => Colors.white.withValues(alpha: 0.42);
-  Color get buttonBorder => Colors.black.withValues(alpha: 0.18);
-  Color get track => isMonochrome
-      ? const Color(0xFFEDEDED)
-      : Colors.black.withValues(alpha: 0.08);
+      isMonochrome ? const Color(0xFF35383F) : const Color(0xFF2563EB);
+  Color get accentSoft =>
+      isMonochrome ? const Color(0xFFE1E2E4) : const Color(0xFFE8F0FF);
+  Color get border =>
+      isMonochrome ? const Color(0xFFD5D5D8) : const Color(0xFFE1E5EA);
+  Color get strongBorder =>
+      isMonochrome ? const Color(0xFFB8B9BD) : const Color(0xFFCBD2DA);
+  Color get headerControl =>
+      isMonochrome ? const Color(0xFFEDEDEF) : const Color(0xFFF1F4F7);
+  Color get selectedChip =>
+      isMonochrome ? const Color(0xFFDADADD) : const Color(0xFFFFFFFF);
+  Color get selectedRow =>
+      isMonochrome ? const Color(0xFFE9E9EB) : const Color(0xFFEFF5FF);
+  Color get buttonBackground =>
+      isMonochrome ? const Color(0xFFEDEDEF) : const Color(0xFFF2F4F7);
+  Color get buttonBorder =>
+      isMonochrome ? const Color(0xFFC8C9CD) : const Color(0xFFD7DCE2);
+  Color get track =>
+      isMonochrome ? const Color(0xFFE2E2E4) : const Color(0xFFE6E9EE);
   Color get ringBorder => Colors.white;
+  Color get danger => const Color(0xFFD14343);
+  Color get dangerSoft => const Color(0xFFFDECEC);
 
   Color lapColor(int index) {
     if (isMonochrome) {
       const values = [
-        Color(0xFF343434),
-        Color(0xFF555555),
-        Color(0xFF737373),
-        Color(0xFF909090),
-        Color(0xFFADADAD),
+        Color(0xFF34363B),
+        Color(0xFF53565D),
+        Color(0xFF71757D),
+        Color(0xFF90949B),
+        Color(0xFFAFB2B7),
       ];
       return values[math.max(0, index - 1) % values.length];
     }
     const values = [
-      Color(0xFFFF0000),
-      Color(0xFFFF4000),
-      Color(0xFFFF8000),
-      Color(0xFFFFC000),
-      Color(0xFFFFFF00),
-      Color(0xFFC0FF00),
-      Color(0xFF80FF00),
-      Color(0xFF40FF00),
-      Color(0xFF00FF00),
-      Color(0xFF00FF40),
-      Color(0xFF00FF80),
-      Color(0xFF00FFC0),
-      Color(0xFF00FFFF),
-      Color(0xFF00C0FF),
-      Color(0xFF0080FF),
-      Color(0xFF0040FF),
-      Color(0xFF0000FF),
-      Color(0xFF4000FF),
-      Color(0xFF8000FF),
-      Color(0xFFC000FF),
-      Color(0xFFFF00FF),
-      Color(0xFFFF00C0),
-      Color(0xFFFF0080),
-      Color(0xFFFF0040),
+      Color(0xFFE5484D),
+      Color(0xFFF97316),
+      Color(0xFFE59F00),
+      Color(0xFF84CC16),
+      Color(0xFF22C55E),
+      Color(0xFF10B981),
+      Color(0xFF14B8A6),
+      Color(0xFF06B6D4),
+      Color(0xFF0EA5E9),
+      Color(0xFF3B82F6),
+      Color(0xFF6366F1),
+      Color(0xFF8B5CF6),
+      Color(0xFFA855F7),
+      Color(0xFFD946EF),
+      Color(0xFFEC4899),
+      Color(0xFFF43F5E),
     ];
     return values[math.max(0, index - 1) % values.length];
   }
@@ -4301,18 +4606,18 @@ InputDecoration _mobileFieldDecoration(
   bool dense = false,
 }) {
   final border = OutlineInputBorder(
-    borderRadius: BorderRadius.circular(7),
+    borderRadius: BorderRadius.circular(8),
     borderSide: BorderSide(color: colors.border),
   );
   return InputDecoration(
     isDense: dense,
     filled: true,
-    fillColor: colors.control,
+    fillColor: colors.surface,
     hintText: hintText,
-    hintStyle: TextStyle(color: colors.secondaryText, fontSize: 12),
+    hintStyle: TextStyle(color: colors.secondaryText, fontSize: 13),
     contentPadding: dense
-        ? const EdgeInsets.symmetric(horizontal: 9, vertical: 8)
-        : const EdgeInsets.all(9),
+        ? const EdgeInsets.symmetric(horizontal: 12, vertical: 11)
+        : const EdgeInsets.all(14),
     border: border,
     enabledBorder: border,
     focusedBorder: border,

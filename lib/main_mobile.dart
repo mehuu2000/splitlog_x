@@ -19,15 +19,46 @@ class SplitLogMobileApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    const accent = Color(0xFF2563EB);
+    final colorScheme = ColorScheme.fromSeed(
+      seedColor: accent,
+      brightness: Brightness.light,
+      surface: Colors.white,
+    );
     return MaterialApp(
       title: 'SplitLog',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF2F6FED)),
+        colorScheme: colorScheme,
         useMaterial3: true,
+        scaffoldBackgroundColor: const Color(0xFFF5F7FA),
+        splashFactory: InkSparkle.splashFactory,
         inputDecorationTheme: const InputDecorationThemeData(
           focusColor: Colors.transparent,
           hoverColor: Colors.transparent,
+        ),
+        bottomSheetTheme: const BottomSheetThemeData(
+          backgroundColor: Colors.white,
+          surfaceTintColor: Colors.transparent,
+          showDragHandle: true,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(8)),
+          ),
+        ),
+        dialogTheme: const DialogThemeData(
+          backgroundColor: Colors.white,
+          surfaceTintColor: Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.all(Radius.circular(8)),
+          ),
+        ),
+        snackBarTheme: const SnackBarThemeData(
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Color(0xFF171A21),
+          contentTextStyle: TextStyle(color: Colors.white, fontSize: 13),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.all(Radius.circular(8)),
+          ),
         ),
         fontFamilyFallback: const [
           'Hiragino Sans',

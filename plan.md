@@ -319,29 +319,33 @@ iPhone版とAndroid版は、共通のMobile UIを使う全画面アプリとし�
    - DesktopとMobileのビルドエントリーポイントを分離する
    - 縦画面へ固定し、Safe Areaに対応する
    - Application Support領域へ`sessions.json`を保存する
-3. Step 3-3: 共通Mobile UI（再調整済み・確認待ち）
+3. Step 3-3: 共通Mobile UI（現代的なモバイルUIへ再設計済み）
    - セッション切り替え、リング、Split一覧、主要操作を縦画面へ配置する
    - メモ、サマリー、設定をモバイル向け全画面として実装する
    - タッチ操作に必要な操作領域とスクロールを確保する
+   - タイマーを主役にし、セッション、Split、主要操作の視覚的優先順位を明確にする
+   - 固定下部アクション、ボトムシート、8px角のSplitカードを共通のモバイル表現とする
+   - リセット、削除、選択操作はデスクトップ型ダイアログではなくボトムシートに統一する
 4. Step 3-4: 状態とライフサイクル（完了）
    - 既存のタイマー、セッション、Split、サマリー、設定へ接続する
    - バックグラウンド移行時に状態を保存する
    - 復帰時は開始時刻と現在時刻から経過時間を再計算する
-5. Step 3-5: Mobile機能完成度チェック（実施中）
+5. Step 3-5: Mobile機能完成度チェック（完了）
    - Desktop版の既存機能と比較し、モバイルv1で不足する画面・操作を整理する
    - 小さい画面、キーボード表示、長いSplit名、複数SplitはWidgetテストとiPhone SE Simulatorで確認済み
    - Desktop版の配色、リング、Split行、主要操作の視覚表現をMobile UIへ反映した
    - セッション名とSplit名の編集、カスタムフォーマット管理、操作説明、データ管理のモバイル向け導線を実装しWidgetテストで確認した
    - iOSのDocument PickerとAndroidのStorage Access Frameworkを使い、`sessions.json`の手動インポートを実装した
-6. Step 3-6: iPhone検証（実施中）
+   - モバイル向けWidgetテスト8件を含む全57テストと静的解析の成功を確認した
+6. Step 3-6: iPhone検証（Simulator検証完了・配布準備待ち）
    - Simulatorと実機で表示、保存、バックグラウンド復帰を確認する
    - 表示名、アイコン、Bundle ID、署名をTestFlight向けに整備する
    - iPhone 17 ProとiPhone SE SimulatorのDebugビルド・初期表示は確認済み
-   - iPhone 17 Proで再調整後のメイン画面を実行し、既存データ・複数Split・計測中表示を確認した
-7. Step 3-7: Android検証（実施中）
+   - iPhone 17 ProとiPhone SEで現代的なMobile UIのメイン画面を実行し、タイマー、複数Split、固定下部操作、小画面スクロールを確認した
+7. Step 3-7: Android検証（Emulator検証完了・配布準備待ち）
    - Emulatorと実機で表示、保存、戻る操作を確認する
    - 表示名、アイコン、Application ID、リリース署名をAPK向けに整備する
-   - Debug APKのビルドは確認済み。Android Emulatorまたは実機での表示確認は未実施
+   - Debug APKのビルドとAndroid Emulatorでの大小画面表示は確認済み。実機とRelease APKは未検証
 8. Step 3-8: 配布準備
    - iOSはTestFlightへ提出できるArchiveを作成する
    - Androidは署名済みRelease APKを作成する

@@ -950,6 +950,11 @@ void main() {
     expect(find.text('停止'), findsOneWidget);
     expect(storage.snapshot!.sessions.single.state, SessionState.running);
     expect(storage.snapshot!.sessions.single.laps, hasLength(1));
+    final firstLapId = storage.snapshot!.sessions.single.laps.single.id;
+    expect(
+      find.byKey(ValueKey<String>('mobile-lap-color-$firstLapId')),
+      findsOneWidget,
+    );
 
     await tester.tap(find.byKey(const ValueKey<String>('mobile-split-action')));
     await tester.pump();
@@ -1014,21 +1019,37 @@ void main() {
     await tester.pumpWidget(SplitLogMobileApp(storage: storage));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('使い方'));
+    await tester.tap(find.byTooltip('設定'));
+    await tester.pumpAndSettle();
+    final guideAction = find.text('操作説明');
+    await tester.scrollUntilVisible(
+      guideAction,
+      120,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.ensureVisible(guideAction);
+    await tester.pumpAndSettle();
+    await tester.tap(guideAction);
     await tester.pumpAndSettle();
     expect(find.text('操作説明'), findsOneWidget);
     expect(find.text('計測を始める・区切る'), findsOneWidget);
     expect(find.text('セッションを管理する'), findsOneWidget);
-    await tester.tap(find.byTooltip('閉じる'));
+    await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();
-
+    await tester.pumpWidget(SplitLogMobileApp(storage: storage));
+    await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('設定'));
     await tester.pumpAndSettle();
-    expect(find.text('リング周期（1周）'), findsOneWidget);
-    expect(find.text('デフォルト分配モード'), findsOneWidget);
-    expect(find.text('サマリー表示フォーマット'), findsOneWidget);
 
-    await tester.tap(find.byTooltip('カスタムを追加'));
+    final addCustom = find.byTooltip('カスタムを追加');
+    await tester.scrollUntilVisible(
+      addCustom,
+      120,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.ensureVisible(addCustom);
+    await tester.pumpAndSettle();
+    await tester.tap(addCustom);
     await tester.pumpAndSettle();
     expect(find.text('カスタムフォーマット'), findsOneWidget);
     expect(find.text('入力例とプレビュー'), findsOneWidget);

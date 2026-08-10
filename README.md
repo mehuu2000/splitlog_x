@@ -18,10 +18,10 @@ SplitLogは、作業セッションを細かなSplitに分けて時間とメモ�
 | --- | --- | --- |
 | macOS | v1完成 | ZIPによる直接配布 |
 | Windows | v1完成 | ZIPによる直接配布 |
-| iPhone | v1開発中 | TestFlight予定 |
-| Android | v1開発中 | APK予定 |
+| iPhone | v1機能完成・配布準備中 | TestFlight予定 |
+| Android | v1機能完成・配布準備中 | APK予定 |
 
-現在、配布確認まで完了しているのはmacOS版とWindows版です。iPhone、Androidは共通Mobile UI、基本操作、ローカル保存、バックグラウンド復帰を実装し、Debugビルドまで確認しています。実機検証、識別子・署名、TestFlightとRelease APKの準備は作業中です。
+現在、配布確認まで完了しているのはmacOS版とWindows版です。iPhone、Androidは共通Mobile UI、基本操作、ローカル保存、バックグラウンド復帰を実装し、iPhone SimulatorとAndroid Emulatorで大小の画面を確認済みです。実機検証、識別子・署名、TestFlightとRelease APKの準備は作業中です。
 
 ## 主な機能
 
@@ -144,7 +144,7 @@ flutter run -d <Android端末ID> -t lib/main_mobile.dart
 
 1. macOS版v1: 完了
 2. Windows版v1: 完了
-3. iPhone/Android版: 共通Mobile UIの実機検証と配布準備
+3. iPhone/Android版: 共通Mobile UIの実装完了、実機検証と配布準備
 4. 必要性を確認したうえで、通知・同期・ストア配布を検討
 
 詳細は[`plan.md`](plan.md)に記録しています。
