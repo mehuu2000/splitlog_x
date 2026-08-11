@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:path_provider/path_provider.dart';
+
 import '../models/session_models.dart';
 import '../models/summary_format.dart';
 
@@ -187,6 +189,16 @@ class SessionStorageService {
   final File _storageFile;
   final List<File> _legacyStorageFiles;
   Future<void> _pendingFileOperation = Future<void>.value();
+
+  static Future<SessionStorageService> createForCurrentPlatform() async {
+    if (Platform.isIOS || Platform.isAndroid) {
+      final supportDirectory = await getApplicationSupportDirectory();
+      return SessionStorageService(
+        storageFile: File('${supportDirectory.path}/SplitLog/sessions.json'),
+      );
+    }
+    return SessionStorageService();
+  }
 
   Future<SplitLogStorageSnapshot?> load() async {
     await _pendingFileOperation;

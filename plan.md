@@ -10,7 +10,7 @@
 
 - Step 1 macOS版v1: 完了
 - Step 2 Windows版v1: 完了
-- Step 3 iPhone/Android版: 未着手
+- Step 3 iPhone/Android版: v1機能実装完了・配布保留
 
 ## 対象プラットフォーム
 
@@ -158,10 +158,10 @@ v1ではネットワークを使わず、端末ローカル保存のみとする
 
 - macOS: zip/dmg配布
 - Windows: v1はzip配布、必要になった段階でmsi/msixを検討
-- iOS: TestFlight
-- Android: APK直接配布
+- iOS: v1機能は実装済み。今回のリリースでは配布しない
+- Android: v1機能は実装済み。今回のリリースでは配布しない
 
-ストア配布はv1の必須要件にはしない。
+今回の配布対象はmacOSとWindowsの身内向けzipのみとする。モバイルの実機配布、署名、ストア提出は、必要性と運用コストを再評価してから行う。
 
 ## 実装構成方針
 
@@ -170,6 +170,7 @@ v1ではネットワークを使わず、端末ローカル保存のみとする
 ```text
 lib/
   main.dart
+  main_mobile.dart
   app/
     splitlog_app.dart
     platform_shell.dart
@@ -304,12 +305,66 @@ Step 2の完了条件:
 - macOS版と共通のDesktop UIを使い、WindowsのみInter/Noto Sans JPで表示差を調整した
 - Visual C++ランタイムを同梱した`SplitLog-Windows-v1.0.0.zip`を作成し、内容とSHA-256を確認した
 
-### Step 3以降
+### Step 3
 
-1. Mobile UIの縦長レイアウトを作る
-2. iPhone/Android向けの状態管理と操作を接続する
-3. 各プラットフォームでビルド確認する
-4. 配布形式を整理する
+iPhone版とAndroid版は、共通のMobile UIを使う全画面アプリとして実装する。Desktop版の上位レイアウトは流用せず、色、リング、Split行、操作概念とコアロジックを共有する。
+
+実装ステップ:
+
+1. Step 3-1: モバイル対応の棚卸し（完了）
+   - Desktop固有のPopover/常駐処理と共有コアロジックを分離して確認する
+   - iPhone/Androidで共有する画面構成と個別対応範囲を確定する
+2. Step 3-2: モバイル基盤（完了）
+   - iPhone/Androidで`MobileSessionView`を選択する
+   - 既定の`lib/main.dart`から実行先OSに応じてDesktop/Mobile UIを自動選択する
+   - 縦画面へ固定し、Safe Areaに対応する
+   - Application Support領域へ`sessions.json`を保存する
+3. Step 3-3: 共通Mobile UI（現代的なモバイルUIへ再設計済み）
+   - セッション切り替え、リング、Split一覧、主要操作を縦画面へ配置する
+   - メモ、サマリー、設定をモバイル向け全画面として実装する
+   - タッチ操作に必要な操作領域とスクロールを確保する
+   - タイマーを主役にし、セッション、Split、主要操作の視覚的優先順位を明確にする
+   - 固定下部アクション、ボトムシート、8px角のSplitカードを共通のモバイル表現とする
+   - リセット、削除、選択操作はデスクトップ型ダイアログではなくボトムシートに統一する
+4. Step 3-4: 状態とライフサイクル（完了）
+   - 既存のタイマー、セッション、Split、サマリー、設定へ接続する
+   - バックグラウンド移行時に状態を保存する
+   - 復帰時は開始時刻と現在時刻から経過時間を再計算する
+5. Step 3-5: Mobile機能完成度チェック（完了）
+   - Desktop版の既存機能と比較し、モバイルv1で不足する画面・操作を整理する
+   - 小さい画面、キーボード表示、長いSplit名、複数SplitはWidgetテストとiPhone SE Simulatorで確認済み
+   - Desktop版の配色、リング、Split行、主要操作の視覚表現をMobile UIへ反映した
+   - セッション名とSplit名の編集、カスタムフォーマット管理、操作説明、データ管理のモバイル向け導線を実装しWidgetテストで確認した
+   - iOSのDocument PickerとAndroidのStorage Access Frameworkを使い、`sessions.json`の手動インポートを実装した
+   - OS別の起動判定テストを含む全58テストと静的解析の成功を確認した
+6. Step 3-6: iPhone検証（Simulator検証完了・配布保留）
+   - Simulatorで表示、保存、バックグラウンド復帰を確認する
+   - 表示名、アイコン、Bundle IDを整備する
+   - iPhone 17 ProとiPhone SE SimulatorのDebugビルド・初期表示は確認済み
+   - iPhone 17 ProとiPhone SEで現代的なMobile UIのメイン画面を実行し、タイマー、複数Split、固定下部操作、小画面スクロールを確認した
+   - 実機検証、署名、TestFlight配布は今回の対象外とする
+7. Step 3-7: Android検証（Emulator検証完了・配布保留）
+   - Emulatorで表示、保存、戻る操作を確認する
+   - 表示名、アイコン、Application IDを整備する
+   - Debug APKのビルドとAndroid Emulatorでの大小画面表示は確認済み。実機とRelease APKは未検証
+   - 実機検証とリリース署名は今回の対象外とする
+8. Step 3-8: 配布準備（今回の対象外）
+   - iOSのTestFlight提出とAndroidの署名済みRelease APKは必要性を再評価してから行う
+
+Step 3の完了条件:
+
+- iPhone/Androidで共通Mobile UIを利用できる
+- Desktop版と同じセッション・タイマー・Split・メモ・サマリーの基本操作を使える
+- アプリをバックグラウンドへ移しても、復帰時の経過時間が正しい
+- 各端末のローカル領域へデータを保存・復元できる
+- iPhone SimulatorとAndroid EmulatorでMobile UIを検証できる
+- 実機配布と署名は次期判断事項として明記されている
+
+### Step 4以降
+
+1. モバイルの通知・ロック画面表示の必要性を再評価する
+2. 端末間同期の必要性を再評価する
+3. モバイル実機配布、ストア配布、インストーラー、公証・署名を再評価する
 
 ## 実装前の制約
 

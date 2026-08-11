@@ -8,12 +8,29 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:splitlog_x/core/models/session_models.dart';
 import 'package:splitlog_x/core/services/session_storage_service.dart';
 import 'package:splitlog_x/main.dart';
+import 'package:splitlog_x/main_mobile.dart' show SplitLogMobileApp;
 
 void main() {
   late _MemorySessionStorageService storage;
 
   setUp(() {
     storage = _MemorySessionStorageService();
+  });
+
+  testWidgets('selects the app shell for the target platform', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      SplitLogPlatformApp(storage: storage, platform: TargetPlatform.iOS),
+    );
+    expect(find.byType(SplitLogMobileApp), findsOneWidget);
+    expect(find.byType(SplitLogApp), findsNothing);
+
+    await tester.pumpWidget(
+      SplitLogPlatformApp(storage: storage, platform: TargetPlatform.macOS),
+    );
+    expect(find.byType(SplitLogApp), findsOneWidget);
+    expect(find.byType(SplitLogMobileApp), findsNothing);
   });
 
   testWidgets('shows SplitLog desktop preview', (WidgetTester tester) async {
@@ -354,7 +371,9 @@ void main() {
     WidgetTester tester,
   ) async {
     final delayedStorage = _DelayedMemorySessionStorageService();
-    await tester.pumpWidget(SplitLogApp(storage: delayedStorage));
+    await tester.pumpWidget(
+      SplitLogApp(storage: delayedStorage, platform: TargetPlatform.macOS),
+    );
 
     await tester.tap(find.text('開始'), warnIfMissed: false);
     await tester.pump();
@@ -375,7 +394,9 @@ void main() {
     WidgetTester tester,
   ) async {
     final failingStorage = _FailingLoadMemorySessionStorageService();
-    await tester.pumpWidget(SplitLogApp(storage: failingStorage));
+    await tester.pumpWidget(
+      SplitLogApp(storage: failingStorage, platform: TargetPlatform.macOS),
+    );
     await tester.pump();
 
     await tester.tap(find.text('開始'));
@@ -900,10 +921,422 @@ void main() {
 
     expect(selectedChip.center.dx, closeTo(viewport.center.dx, 1));
   });
+
+  testWidgets('iOS and Android use the shared mobile session view', (
+    WidgetTester tester,
+  ) async {
+    for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
+      debugDefaultTargetPlatformOverride = platform;
+      try {
+        final platformStorage = _MemorySessionStorageService();
+        await tester.pumpWidget(SplitLogMobileApp(storage: platformStorage));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const ValueKey<String>('mobile-session-view')),
+          findsOneWidget,
+        );
+        expect(find.text('SplitLog'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey<String>('mobile-primary-action')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey<String>('session-selector-scroll-view')),
+          findsNothing,
+        );
+      } finally {
+        await tester.pumpWidget(const SizedBox.shrink());
+        debugDefaultTargetPlatformOverride = null;
+      }
+    }
+  });
+
+  testWidgets('mobile timer actions and memo persist through shared storage', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(SplitLogMobileApp(storage: storage));
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('mobile-primary-action')),
+    );
+    await tester.pump();
+
+    expect(find.text('停止'), findsOneWidget);
+    expect(storage.snapshot!.sessions.single.state, SessionState.running);
+    expect(storage.snapshot!.sessions.single.laps, hasLength(1));
+    final firstLapId = storage.snapshot!.sessions.single.laps.single.id;
+    expect(
+      find.byKey(ValueKey<String>('mobile-lap-color-$firstLapId')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const ValueKey<String>('mobile-split-action')));
+    await tester.pump();
+
+    expect(storage.snapshot!.sessions.single.laps, hasLength(2));
+
+    await tester.tap(find.byTooltip('Splitメモ').last);
+    await tester.pumpAndSettle();
+    expect(find.text('Splitメモ'), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('mobile-memo-field')),
+      'モバイルから記録',
+    );
+    await tester.tap(find.text('保存'));
+    await tester.pumpAndSettle();
+
+    expect(storage.snapshot!.sessions.single.laps.last.memo, 'モバイルから記録');
+  });
+
+  testWidgets('mobile session and split names can be edited safely', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(SplitLogMobileApp(storage: storage));
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('mobile-session-title-editor')),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('mobile-name-editor-field')),
+      'モバイルセッション',
+    );
+    await tester.tap(find.text('保存'));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(storage.snapshot!.sessions.single.session!.title, 'モバイルセッション');
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('mobile-primary-action')),
+    );
+    await tester.pump();
+    final lapId = storage.snapshot!.sessions.single.laps.single.id;
+    await tester.tap(find.byKey(ValueKey<String>('mobile-lap-label-$lapId')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('mobile-name-editor-field')),
+      '編集したSplit名',
+    );
+    await tester.tap(find.text('保存'));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(storage.snapshot!.sessions.single.laps.single.label, '編集したSplit名');
+  });
+
+  testWidgets('mobile restores guide, settings, and custom summary formats', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(SplitLogMobileApp(storage: storage));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('設定'));
+    await tester.pumpAndSettle();
+    final guideAction = find.text('操作説明');
+    await tester.scrollUntilVisible(
+      guideAction,
+      120,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.ensureVisible(guideAction);
+    await tester.pumpAndSettle();
+    await tester.tap(guideAction);
+    await tester.pumpAndSettle();
+    expect(find.text('操作説明'), findsOneWidget);
+    expect(find.text('計測を始める・区切る'), findsOneWidget);
+    expect(find.text('セッションを管理する'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(SplitLogMobileApp(storage: storage));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('設定'));
+    await tester.pumpAndSettle();
+
+    final addCustom = find.byTooltip('カスタムを追加');
+    await tester.scrollUntilVisible(
+      addCustom,
+      120,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.ensureVisible(addCustom);
+    await tester.pumpAndSettle();
+    await tester.tap(addCustom);
+    await tester.pumpAndSettle();
+    expect(find.text('カスタムフォーマット'), findsOneWidget);
+    expect(find.text('入力例とプレビュー'), findsOneWidget);
+    expect(find.text('表示形式とルール'), findsOneWidget);
+
+    await tester.tap(find.text('表示形式とルール'));
+    await tester.pump();
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('mobile-format-name-field')),
+      'モバイル日報',
+    );
+    await tester.tap(find.text('保存'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('モバイル日報'), findsOneWidget);
+    await tester.tap(find.byTooltip('閉じる'));
+    await tester.pumpAndSettle();
+
+    expect(storage.snapshot!.settings.customSummaryFormats, hasLength(1));
+    expect(
+      storage.snapshot!.settings.customSummaryFormats.single.name,
+      'モバイル日報',
+    );
+    expect(
+      storage.snapshot!.settings.selectedSummaryFormatId,
+      storage.snapshot!.settings.customSummaryFormats.single.id,
+    );
+  });
+
+  testWidgets('mobile imports a manually selected sessions.json file', (
+    WidgetTester tester,
+  ) async {
+    const channel = MethodChannel('splitlog_x/app');
+    final invokedMethods = <String>[];
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (MethodCall call) async {
+      invokedMethods.add(call.method);
+      return '{}';
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+    final now = DateTime.now();
+    storage.importContentSnapshot = SplitLogStorageSnapshot(
+      savedAt: now,
+      selectedSessionIndex: 0,
+      settings: const SplitLogSettingsSnapshot(),
+      sessions: [
+        StopwatchSnapshot(
+          session: WorkSession(
+            id: 'mobile-imported-session',
+            title: '取り込んだセッション',
+            startedAt: now,
+          ),
+          laps: const [],
+          selectedLapId: null,
+          activeLapIds: const {},
+          splitAccumulationMode: SplitAccumulationMode.radio,
+          state: SessionState.idle,
+          pauseStartedAt: null,
+          lastDistributedWholeSeconds: 0,
+          distributionCursor: 0,
+          totalPausedSeconds: 0,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(SplitLogMobileApp(storage: storage));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('設定'));
+    await tester.pumpAndSettle();
+
+    final importAction = find.text('sessions.jsonを選択');
+    await tester.scrollUntilVisible(
+      importAction,
+      180,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.tap(importAction);
+    await tester.pumpAndSettle();
+    expect(find.text('旧データをインポートしますか？'), findsOneWidget);
+
+    await tester.tap(find.text('ファイルを選択'));
+    await tester.pumpAndSettle();
+
+    expect(invokedMethods, contains('chooseLegacyFile'));
+    expect(find.text('取り込んだセッション'), findsWidgets);
+    expect(storage.lastImportedContent, '{}');
+    expect(storage.snapshot!.sessions.single.session!.title, '取り込んだセッション');
+  });
+
+  testWidgets('mobile lifecycle saves and restores elapsed time by timestamp', (
+    WidgetTester tester,
+  ) async {
+    final now = DateTime.now();
+    storage.snapshot = SplitLogStorageSnapshot(
+      savedAt: now.subtract(const Duration(minutes: 2)),
+      selectedSessionIndex: 0,
+      settings: const SplitLogSettingsSnapshot(),
+      sessions: [
+        StopwatchSnapshot(
+          session: WorkSession(
+            id: 'mobile-running-session',
+            title: 'モバイル計測',
+            startedAt: now.subtract(const Duration(minutes: 2)),
+          ),
+          laps: [
+            WorkLap(
+              id: 'mobile-running-lap',
+              sessionId: 'mobile-running-session',
+              index: 1,
+              startedAt: now.subtract(const Duration(minutes: 2)),
+              accumulatedSeconds: 0,
+              label: '作業1',
+            ),
+          ],
+          selectedLapId: 'mobile-running-lap',
+          activeLapIds: const {'mobile-running-lap'},
+          splitAccumulationMode: SplitAccumulationMode.radio,
+          state: SessionState.running,
+          pauseStartedAt: null,
+          lastDistributedWholeSeconds: 0,
+          distributionCursor: 0,
+          totalPausedSeconds: 0,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(SplitLogMobileApp(storage: storage));
+    await tester.pumpAndSettle();
+
+    final elapsed = tester.widget<Text>(
+      find.byKey(const ValueKey<String>('mobile-total-elapsed')),
+    );
+    expect(elapsed.data, startsWith('00:02:'));
+
+    final savesBeforeBackground = storage.saveCount;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump();
+    expect(storage.saveCount, greaterThan(savesBeforeBackground));
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey<String>('mobile-total-elapsed')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+    'mobile layout handles a small screen, long labels, and keyboard',
+    (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(320, 568);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+        tester.view.resetViewInsets();
+      });
+
+      final now = DateTime.now();
+      storage.snapshot = SplitLogStorageSnapshot(
+        savedAt: now,
+        selectedSessionIndex: 0,
+        settings: const SplitLogSettingsSnapshot(),
+        sessions: [
+          StopwatchSnapshot(
+            session: WorkSession(
+              id: 'small-mobile-session',
+              title: '小さい画面で確認する長いセッション名',
+              startedAt: now.subtract(const Duration(hours: 1)),
+              endedAt: now,
+            ),
+            laps: [
+              for (var index = 0; index < 6; index += 1)
+                WorkLap(
+                  id: 'small-mobile-lap-$index',
+                  sessionId: 'small-mobile-session',
+                  index: index + 1,
+                  startedAt: now.subtract(Duration(minutes: 60 - index * 10)),
+                  endedAt: now.subtract(Duration(minutes: 50 - index * 10)),
+                  accumulatedSeconds: 600,
+                  label: '長いSplit名でも表示領域を壊さず扱えることを確認 $index',
+                  memo: '複数行のメモ\n画面幅が狭くても操作できます',
+                ),
+            ],
+            selectedLapId: 'small-mobile-lap-0',
+            activeLapIds: const {'small-mobile-lap-0'},
+            splitAccumulationMode: SplitAccumulationMode.radio,
+            state: SessionState.stopped,
+            pauseStartedAt: now,
+            lastDistributedWholeSeconds: 3600,
+            distributionCursor: 0,
+            totalPausedSeconds: 0,
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(SplitLogMobileApp(storage: storage));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey<String>('mobile-session-view')),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+
+      await tester.tap(find.byTooltip('Splitメモ').first);
+      await tester.pumpAndSettle();
+      final memoField = find.byKey(const ValueKey<String>('mobile-memo-field'));
+      expect(memoField, findsOneWidget);
+
+      await tester.tap(memoField);
+      tester.view.viewInsets = const FakeViewPadding(bottom: 240);
+      await tester.pumpAndSettle();
+      await tester.enterText(memoField, 'キーボード表示中に入力する長いメモ');
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('キーボード表示中に入力する長いメモ'), findsOneWidget);
+    },
+  );
+
+  testWidgets('mobile settings and format editor fit a small screen', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 568);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+      tester.view.resetViewInsets();
+    });
+
+    await tester.pumpWidget(SplitLogMobileApp(storage: storage));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('設定'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('設定'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    final addCustom = find.byTooltip('カスタムを追加');
+    await tester.scrollUntilVisible(
+      addCustom,
+      120,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.tap(addCustom);
+    await tester.pumpAndSettle();
+
+    expect(find.text('カスタムフォーマット'), findsOneWidget);
+    await tester.tap(find.text('表示形式とルール'));
+    await tester.pump();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('mobile-format-title-field')),
+    );
+    tester.view.viewInsets = const FakeViewPadding(bottom: 220);
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(
+      find.byKey(const ValueKey<String>('mobile-format-title-field')),
+      findsOneWidget,
+    );
+  });
 }
 
 class _MemorySessionStorageService extends SessionStorageService {
   SplitLogStorageSnapshot? snapshot;
+  SplitLogStorageSnapshot? importContentSnapshot;
+  String? lastImportedContent;
   int saveCount = 0;
   int flushCount = 0;
 
@@ -935,7 +1368,10 @@ class _MemorySessionStorageService extends SessionStorageService {
   @override
   Future<SplitLogStorageSnapshot?> importLegacySnapshotFromContent(
     String content,
-  ) async => null;
+  ) async {
+    lastImportedContent = content;
+    return importContentSnapshot;
+  }
 }
 
 class _DelayedMemorySessionStorageService extends _MemorySessionStorageService {
@@ -973,7 +1409,12 @@ Future<void> _pumpApp(
   WidgetTester tester,
   SessionStorageService storage,
 ) async {
-  await tester.pumpWidget(SplitLogApp(storage: storage));
+  await tester.pumpWidget(
+    SplitLogApp(
+      storage: storage,
+      platform: debugDefaultTargetPlatformOverride ?? TargetPlatform.macOS,
+    ),
+  );
   await tester.pumpAndSettle();
 }
 
