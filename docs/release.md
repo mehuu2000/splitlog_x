@@ -107,6 +107,13 @@ shasum -a 256 "dist/SplitLog-macOS-v${VERSION}.zip"
 
 SHA-256チェックサムはストア提出には通常使用しません。直接配布したファイルの破損・差し替え確認や、配布記録として必要な場合に保存します。
 
+v1.0.0で確認済みの配布ファイルとSHA-256:
+
+```text
+SplitLog-macOS-v1.0.0.zip
+a40f06317275ed8c46653a6ed5f7ad2017567d1383f3d1bb39f61efa1c155d0e
+```
+
 ## macOS配布時の注意
 
 現行のZIPは、Mac App Store配布とAppleによる公証を行っていません。
