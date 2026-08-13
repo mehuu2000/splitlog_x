@@ -89,37 +89,12 @@ class AppDelegate: FlutterAppDelegate, NSWindowDelegate {
 
   private func makeStatusIcon() -> NSImage {
     let size = NSSize(width: 18, height: 18)
-    let image = NSImage(size: size)
-    image.lockFocus()
+    guard let image = NSImage(named: NSImage.Name("StatusIcon")) else {
+      assertionFailure("StatusIcon asset is missing")
+      return NSImage(size: size)
+    }
 
-    NSColor.black.setStroke()
-
-    let body = NSBezierPath(ovalIn: NSRect(x: 3.2, y: 2.4, width: 11.8, height: 11.8))
-    body.lineWidth = 1.8
-    body.stroke()
-
-    let crown = NSBezierPath()
-    crown.lineWidth = 1.8
-    crown.move(to: NSPoint(x: 9.1, y: 14.1))
-    crown.line(to: NSPoint(x: 9.1, y: 16.2))
-    crown.stroke()
-
-    let sideButton = NSBezierPath()
-    sideButton.lineWidth = 1.5
-    sideButton.move(to: NSPoint(x: 13.4, y: 13.2))
-    sideButton.line(to: NSPoint(x: 15.0, y: 14.7))
-    sideButton.stroke()
-
-    let hand = NSBezierPath()
-    hand.lineWidth = 1.6
-    hand.lineCapStyle = .round
-    hand.move(to: NSPoint(x: 9.1, y: 8.3))
-    hand.line(to: NSPoint(x: 9.1, y: 12.0))
-    hand.move(to: NSPoint(x: 9.1, y: 8.3))
-    hand.line(to: NSPoint(x: 11.4, y: 8.3))
-    hand.stroke()
-
-    image.unlockFocus()
+    image.size = size
     image.isTemplate = true
     return image
   }

@@ -263,7 +263,7 @@ bool FlutterWindow::AddTrayIcon() {
   tray_icon_.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
   tray_icon_.uCallbackMessage = kTrayIconMessage;
   tray_icon_.hIcon = LoadIconW(GetModuleHandle(nullptr),
-                               MAKEINTRESOURCEW(IDI_APP_ICON));
+                               MAKEINTRESOURCEW(IDI_TRAY_ICON));
   wcscpy_s(tray_icon_.szTip, L"SplitLog");
 
   tray_icon_added_ = Shell_NotifyIconW(NIM_ADD, &tray_icon_) == TRUE;

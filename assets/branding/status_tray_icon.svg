@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="972" height="972" viewBox="141 141 972 972">
+  <defs>
+    <mask id="pen-cutouts" maskUnits="userSpaceOnUse" x="-80" y="-100" width="420" height="200">
+      <rect x="-80" y="-100" width="420" height="200" fill="#fff"/>
+      <circle cx="229" cy="0" r="10" fill="#000"/>
+      <path d="M 235 -5 L 292 0 L 235 5 Z" fill="#000"/>
+    </mask>
+  </defs>
+
+  <g fill="none" stroke="#000" stroke-width="96" stroke-linecap="butt">
+    <path d="M 274 792 A 390 390 0 0 1 559 243"/>
+    <path d="M 695 243 A 390 390 0 0 1 980 792"/>
+    <path d="M 903 903 A 390 390 0 0 1 351 903"/>
+  </g>
+
+  <g transform="translate(627 627) rotate(-45)" fill="#000" mask="url(#pen-cutouts)">
+    <path d="M 0 -31 H 140 L 160 -15 V 15 L 140 31 H 0 C -17 31 -31 17 -31 0 C -31 -17 -17 -31 0 -31 Z"/>
+    <path d="M 175 -20 L 222 -44 L 302 0 L 222 44 L 175 20 Z"/>
+  </g>
+</svg>
